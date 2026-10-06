@@ -32,12 +32,35 @@ for i in 1 2 3 4 5 6 7 8 9 10; do
     sleep 0.5
 done
 
-# Decide qué wallpaper usar
+# Fondo por defecto: el logo de Arch
+DEFAULT_WALL="$HOME/Pictures/wallpapers/arch-main.png"
+
+# Decide qué wallpaper usar, en este orden:
+#   1. el que ya está elegido (si el fichero sigue existiendo)
+#   2. el logo de Arch
+#   3. uno al azar del rice activo
+#   4. uno al azar de ~/Pictures/wallpapers
+#
+# Antes solo se comprobaba que el FICHERO DE CACHE existiera, no que la imagen
+# de dentro existiera. Al borrar una wallpaper, el cache dejaba de servir y
+# el script se quedaba sin hacer nada: el fondo se congelaba para siempre.
+WALLPAPER=""
 if [ -f "$PERSISTENT_WALL" ]; then
-    WALLPAPER=$(cat "$PERSISTENT_WALL")
-elif [ -d "$WALL_DIR" ] && [ -n "$(ls -A "$WALL_DIR" 2>/dev/null)" ]; then
+    cached=$(cat "$PERSISTENT_WALL" 2>/dev/null)
+    if [ -n "$cached" ] && [ -f "$cached" ]; then
+        WALLPAPER="$cached"
+    fi
+fi
+
+if [ -z "$WALLPAPER" ] && [ -f "$DEFAULT_WALL" ]; then
+    WALLPAPER="$DEFAULT_WALL"
+fi
+
+if [ -z "$WALLPAPER" ] && [ -d "$WALL_DIR" ] && [ -n "$(ls -A "$WALL_DIR" 2>/dev/null)" ]; then
     WALLPAPER=$(find "$WALL_DIR" -type f | shuf -n 1)
-else
+fi
+
+if [ -z "$WALLPAPER" ]; then
     WALLPAPER=$(find "$HOME/Pictures/wallpapers" -type f 2>/dev/null | shuf -n 1)
 fi
 

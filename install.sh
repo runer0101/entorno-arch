@@ -221,7 +221,30 @@ if [[ -d "$REPO/bin" ]]; then
     fi
 fi
 
-# --------------------------------------------------- 5. localbin/ y fonts/
+# --------------------------------------------------------- 5. wallpaper/
+# El fondo por defecto es el logo de Arch. Si mas adelante eliges otra
+# imagen, wallpaper.sh la respeta (la guarda en ~/.cache/current_wallpaper).
+if [[ -d "$REPO/wallpaper" ]]; then
+    if [[ $DRY_RUN -eq 1 ]]; then
+        info "wallpaper/ -> ~/Pictures/wallpapers/"
+    else
+        mkdir -p "$HOME/Pictures/wallpapers" "$HOME/.cache"
+        rsync -a "$REPO/wallpaper/" "$HOME/Pictures/wallpapers/"
+
+        # Solo se fija el fondo si aun no hay ninguno elegido: si ya habia uno
+        # en el cache, se respeta.
+        actual=""
+        [ -f "$HOME/.cache/current_wallpaper" ] && actual=$(cat "$HOME/.cache/current_wallpaper" 2>/dev/null)
+        if [ -n "$actual" ] && [ -f "$actual" ]; then
+            ok "wallpaper/ (se respeta el fondo actual: $(basename "$actual"))"
+        else
+            echo "$HOME/Pictures/wallpapers/arch-main.png" > "$HOME/.cache/current_wallpaper"
+            ok "wallpaper/ (logo de Arch como fondo por defecto)"
+        fi
+    fi
+fi
+
+# ------------------------------------------------------- 6. localbin/ y fonts/
 # localbin/ -> ~/.local/bin/  (scripts que las configs invocan por nombre:
 #                              waybar-cpu no es un modulo de waybar, es un
 #                              script propio. Sin esto la barra va vacia).
@@ -260,7 +283,7 @@ if [[ -d "$REPO/fonts" ]]; then
     fi
 fi
 
-# --------------------------------------------------------- 6. verificacion
+# --------------------------------------------------------- 7. verificacion
 echo
 info "Verificando la instalacion..."
 
@@ -278,6 +301,18 @@ check_file "$HOME/scripts" "scripts/ ($(ls "$HOME"/scripts 2>/dev/null | wc -l) 
 check_file "$HOME/bin" "bin/ ($(ls "$HOME"/bin 2>/dev/null | wc -l) ficheros)"
 check_file "$HOME/.local/bin" "localbin/ ($(ls "$HOME"/.local/bin 2>/dev/null | wc -l) scripts)"
 check_file "$HOME/.local/share/fonts" "fonts/ ($(ls "$HOME"/.local/share/fonts 2>/dev/null | wc -l) familias)"
+check_file "$HOME/Pictures/wallpapers/arch-main.png" "wallpaper/ (logo de Arch)"
+
+# El fondo elegido en el cache debe existir de verdad: wallpaper.sh lo usa como
+# fuente de verdad y si no existe, el escritorio se queda sin fondo.
+if [[ -f "$HOME/.cache/current_wallpaper" ]]; then
+    w=$(cat "$HOME/.cache/current_wallpaper" 2>/dev/null)
+    if [[ -f "$w" ]]; then
+        ok "fondo: $(basename "$w")"
+    else
+        warn "el fondo guardado no existe ($w) — se pondra el logo de Arch al reiniciar"
+    fi
+fi
 
 # Binarios criticos del escritorio. Faltar uno = escritorio roto o sin estilo.
 echo

@@ -89,6 +89,7 @@ Solo la parte visual. Es un `dotfiles` del escritorio, no de todo el sistema.
 | `bin/` | 6 ejecutables → `~/bin/` |
 | `localbin/` | 10 scripts que las configs invocan **por nombre** → `~/.local/bin/` |
 | `fonts/` | 12 fuentes instaladas a mano → `~/.local/share/fonts/` |
+| `wallpaper/` | El logo de Arch (1920x1080) → `~/Pictures/wallpapers/` |
 
 ### Por qué `localbin/` es imprescindible
 
@@ -193,8 +194,14 @@ genera pywal. Sin ejecutar `wal` al menos una vez, los menús salen sin color:
 wal -n ocean -i ~/Pictures/fondo.png
 ```
 
-**Wallpaper** — el fondo lo pone **`awww`**, no hyprpaper. Es un demonio aparte
-que debe arrancar antes que `wallpaper.sh`:
+**Wallpaper** — el fondo por defecto es el **logo de Arch** (`wallpaper/arch-main.png`).
+`install.sh` lo pone en `~/Pictures/wallpapers/` y lo marca como fondo elegido.
+
+Si más adelante quieres otra imagen, cámbiala con tu gestor de fondos; `wallpaper.sh`
+guarda la elección en `~/.cache/current_wallpaper` y a partir de ahí la respeta.
+Al cambiar de rice **no** se toca el fondo: si quieres el wallpaper de un rice, ponlo a mano.
+
+El fondo lo aplica **`awww`**, no hyprpaper. Es un demonio aparte:
 
 ```bash
 systemctl --user enable --now awww-daemon.service
@@ -229,7 +236,8 @@ entorno-arch/
 ├── scripts/            # -> ~/scripts/
 ├── bin/                # -> ~/bin/
 ├── localbin/           # -> ~/.local/bin/   (scripts que waybar invoca por nombre)
-└── fonts/              # -> ~/.local/share/fonts/
+├── fonts/              # -> ~/.local/share/fonts/
+└── wallpaper/          # -> ~/Pictures/wallpapers/  (logo de Arch)
 ```
 
 ## Licencia
