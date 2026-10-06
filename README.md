@@ -43,8 +43,8 @@ Luego **cierra sesión y vuelve a entrar** (no vale reiniciar el compositor).
 2. Instala las dependencias de `packages.txt` (58 paquetes) con `pacman`
 3. Instala **pywal** con `pipx` — no existe en los repos de Arch
 4. Guarda una copia de tu `~/.config` actual en `~/.config-backups/<fecha>/`
-5. Copia las configs a `~/.config/`, el shell a `~`, `scripts/`+`bin/` a tu home,
-   `localbin/` a `~/.local/bin/` y `fonts/` a `~/.local/share/fonts/`
+5. Copia `home/` entero a tu `$HOME`: configs, shell, scripts, fuentes y fondo
+   (fusiona, no borra nada tuyo, y respalda lo que pisa)
 6. Sustituye el token `__HOME__` por tu ruta real
 7. **Verifica** la instalación: cada config, los binarios críticos (`hyprctl`,
    `waybar`, `wofi`, `awww`, `swaync`, `gsettings`), los tres temas, que la sesión
@@ -73,27 +73,29 @@ Solo la parte visual. Es un `dotfiles` del escritorio, no de todo el sistema.
 
 | Ruta | Qué es |
 |---|---|
-| `config/hypr/` | Hyprland (config en **Lua**), 18 rices, scripts, shaders, hyprlock |
-| `config/waybar/` | Barra superior: `config.jsonc`, `common.jsonc`, estilos, iconos |
-| `config/swaync/` | Notificaciones e iconos |
-| `config/swayosd/` | OSD de volumen y brillo |
-| `config/wofi/` | Lanzadores y menús (temas de pywal) |
-| `config/wlogout/` | Menú de cierre de sesión |
-| `config/menus/` | Menús propios |
-| `config/kitty/` | Terminal kitty |
-| `config/alacritty/` | Terminal alacritty |
-| `config/gtk-3.0/` | Tema GTK |
-| `config/kanshi/` | Perfiles de pantalla |
-| `config/cava/` | Visualizador de audio |
-| `config/wal/` | Paleta teal personalizada (`3024` retocado) |
-| `home/` | `.zshrc`, `.bashrc`, `.gitconfig`, `.fzf.bash`, `.fzf.zsh` |
-| `scripts/` | 16 scripts propios → `~/scripts/` |
-| `bin/` | 6 ejecutables → `~/bin/` |
-| `localbin/` | 10 scripts que las configs invocan **por nombre** → `~/.local/bin/` |
-| `fonts/` | 12 fuentes instaladas a mano → `~/.local/share/fonts/` |
-| `wallpaper/` | El logo de Arch (1920x1080) → `~/Pictures/wallpapers/` |
+| `home/.config/hypr/` | Hyprland (config en **Lua**), 18 rices, scripts, shaders, hyprlock |
+| `home/.config/waybar/` | Barra superior: `config.jsonc`, `common.jsonc`, estilos, iconos |
+| `home/.config/swaync/` | Notificaciones e iconos |
+| `home/.config/swayosd/` | OSD de volumen y brillo |
+| `home/.config/wofi/` | Lanzadores y menús (temas de pywal) |
+| `home/.config/wlogout/` | Menú de cierre de sesión |
+| `home/.config/menus/` | Menús propios |
+| `home/.config/kitty/` | Terminal kitty |
+| `home/.config/alacritty/` | Terminal alacritty |
+| `home/.config/gtk-3.0/` | Tema GTK |
+| `home/.config/kanshi/` | Perfiles de pantalla |
+| `home/.config/cava/` | Visualizador de audio |
+| `home/.config/wal/` | Paleta teal personalizada (`3024` retocado) |
+| `home/scripts/` | 16 scripts propios → `~/scripts/` |
+| `home/bin/` | 6 ejecutables → `~/bin/` |
+| `home/.local/bin/` | 10 scripts que las configs invocan **por nombre** → `~/.local/bin/` |
+| `home/.local/share/fonts/` | 12 fuentes instaladas a mano |
+| `home/Pictures/wallpapers/` | El logo de Arch (1920x1080) |
+| `home/.zshrc`, `home/.bashrc` | Shell, con `.gitconfig` y `.fzf.*` |
 
-### Por qué `localbin/` es imprescindible
+Todas las rutas empiezan por `home/` porque es la que se copia a tu `$HOME`.
+
+### Por qué `.local/bin/` es imprescindible
 
 Tu barra **no usa módulos de waybar**: invoca binarios con nombre propio.
 
@@ -104,7 +106,7 @@ Tu barra **no usa módulos de waybar**: invoca binarios con nombre propio.
 ```
 
 Viven en `~/.local/bin/`. Sin ellos, waybar arranca y la barra sale **vacía**.
-Por eso `install.sh` los instala ahí y verifica que estén.
+Por eso `install.sh` los instala en `~/.local/bin/` y verifica que estén.
 
 ### Temas: repo externo
 
@@ -156,7 +158,7 @@ symlinks: hay que reescribir las rutas *dentro* de ellos.
 
 ## Los rices
 
-`config/hypr/rices/` contiene 18 rices. Estructura típica:
+`home/.config/hypr/rices/` contiene 18 rices. Estructura típica:
 
 ```
 rices/emilia/
@@ -176,9 +178,9 @@ Los 18: `aline` · `andrea` · `brenda` · `cristina` · `cynthia` · `daniela` 
 `pamela` · `silvia` · `varinka` · `yael` · `z0mbi3`
 
 El actual es **emilia**, migrado desde bspwm. La versión anterior en formato
-hyprlang está en `config/hypr/hyprland.conf.pre-lua` por si la necesitas.
+hyprlang está en `home/.config/hypr/hyprland.conf.pre-lua` por si la necesitas.
 
-`config/hypr/hyprland.lua` es la config principal, escrita en **Lua** y con
+`home/.config/hypr/hyprland.lua` es la config principal, escrita en **Lua** y con
 `os.getenv("HOME")`, así que ya es portable por sí misma.
 
 ---
@@ -192,14 +194,14 @@ Si quieres zsh:
 chsh -s "$(command -v zsh)"   # cierra sesión y vuelve a entrar
 ```
 
-**Teclado** — `config/hypr/hyprland.conf` tiene bloques `device{}` para el
+**Teclado** — `home/.config/hypr/hyprland.conf` tiene bloques `device{}` para el
 `by-tech-gaming-keyboard` con layout `es`. En otra laptop, edítalos o bórralos
 (Hyprland los ignora si el dispositivo no existe, pero es más limpio quitarlos).
 
 **Colores** — los estilos de wofi y waybar importan `~/.cache/wal/colors-*.css`,
 que genera pywal. Sin ejecutar `wal` al menos una vez, los menús salen sin color.
 
-La paleta teal es un `3024` retocado y va en `config/wal/colorschemes/dark/3024.json`.
+La paleta teal es un `3024` retocado y va en `home/.config/wal/colorschemes/dark/3024.json`.
 `install.sh` lo copia a `~/.config/wal/`, así que se aplica solo al regenerar:
 
 ```bash
@@ -210,7 +212,7 @@ wal --theme                                   # lista los temas disponibles
 > Ojo con la sintaxis: el tema se asigna con `-p`, no con `-n` ni con `-t`
 > (esos son flags). Y no existe un tema llamado `ocean`.
 
-**Wallpaper** — el fondo por defecto es el **logo de Arch** (`wallpaper/arch-main.png`).
+**Wallpaper** — el fondo por defecto es el **logo de Arch** `home/Pictures/wallpapers/arch-main.png`).
 `install.sh` lo pone en `~/Pictures/wallpapers/` y lo marca como fondo elegido.
 
 Si más adelante quieres otra imagen, cámbiala con tu gestor de fondos; `wallpaper.sh`
@@ -247,18 +249,34 @@ sola si existe (línea 323), pero **ese fichero no está en el repo**.
 
 ## Estructura
 
+El repo **replica tu `$HOME` tal cual**. Todo lo que hay dentro de `home/` se
+copia a tu home, en la misma posición. No hay carpetas intermedias ni nombres
+mágicos: si un fichero está en `home/.config/waybar/`, significa
+`~/.config/waybar/`.
+
 ```
 entorno-arch/
 ├── install.sh          # instalador
 ├── packages.txt        # 58 dependencias
-├── config/             # -> ~/.config/
-├── home/               # -> ~/
-├── scripts/            # -> ~/scripts/
-├── bin/                # -> ~/bin/
-├── localbin/           # -> ~/.local/bin/   (scripts que waybar invoca por nombre)
-├── fonts/              # -> ~/.local/share/fonts/
-└── wallpaper/          # -> ~/Pictures/wallpapers/  (logo de Arch)
+├── LICENSE             # GPL-3.0
+└── home/               # -> se copia entero a tu $HOME
+    ├── .config/
+    │   ├── alacritty/  cava/     gtk-3.0/  hypr/
+    │   ├── kanshi/     kitty/    menus/    swaync/
+    │   ├── swayosd/    wal/      waybar/   wlogout/
+    │   └── wofi/
+    ├── .local/
+    │   ├── bin/                       # scripts que waybar invoca por nombre
+    │   └── share/fonts/              # 12 fuentes instaladas a mano
+    ├── Pictures/wallpapers/          # logo de Arch (fondo por defecto)
+    ├── bin/                           # 6 ejecutables
+    ├── scripts/                       # 16 scripts propios
+    ├── .zshrc  .bashrc  .gitconfig
+    └── .fzf.bash  .fzf.zsh
 ```
+
+Instalar es, en el fondo, `rsync home/ $HOME/` — por eso el instalador fusiona
+(no borra) y respalda lo que pisa antes de tocarlo.
 
 ## Créditos y licencia
 
@@ -271,9 +289,8 @@ su cabecera de copyright y no se han eliminado.
 
 | Origen | Qué |
 |---|---|
-| **gh0stzk/dotfiles** (GPL-3.0) | `home/.zshrc`, `config/alacritty/alacritty.toml`, `config/hypr/rices/` (58 ficheros), parte de `config/hypr/scripts/`, `localbin/colorscript` |
+| **gh0stzk/dotfiles** (GPL-3.0) | `home/.zshrc`, `home/.config/alacritty/alacritty.toml`, `home/.config/hypr/rices/` (58 ficheros), parte de `home/.config/hypr/scripts/`, `home/.local/bin/colorscript` |
 | **gh0stzk-dotfiles** (repo de paquetes) | Temas `TokyoNight-zk`, `TokyoNight-SE`, `Qogirr-Dark` |
-| **Mío** | `install.sh`, `packages.txt`, `wallpaper/`, `fonts/`, `scripts/`, `bin/`, `localbin/` propio y las personalizaciones sobre lo anterior |
 
 Si algún día quieres quitar lo de terceros, el núcleo del escritorio son los rices,
 el `.zshrc` y el `alacritty.toml`. Sin ellos queda el armazón pero no el aspecto.
