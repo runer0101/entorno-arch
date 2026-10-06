@@ -330,6 +330,29 @@ for t in /usr/share/themes/TokyoNight-zk /usr/share/icons/TokyoNight-SE /usr/sha
     [[ -e "$t" ]] && ok "$(basename "$t")" || warn "FALTA el tema $(basename "$t") — revisa el repo gh0stzk-dotfiles"
 done
 
+# awww, hypridle y swaync NO tienen servicios systemd que habilitar: los arranca
+# hyprland.lua al iniciar sesion. Si esas lineas desaparecieran del repo, el
+# escritorio entraria sin fondo y sin notificaciones y no habria aviso.
+echo
+info "Comprobando que la sesion arrancara los demonios..."
+lua="$HOME/.config/hypr/hyprland.lua"
+if [[ -f "$lua" ]]; then
+    for d in awww-daemon hypridle; do
+        if grep -q "$d" "$lua" 2>/dev/null; then
+            ok "$d se arranca desde hyprland.lua"
+        else
+            warn "hyprland.lua no arranca '$d' — el escritorio entrara sin el"
+        fi
+    done
+    if grep -q "swaync" "$lua" 2>/dev/null; then
+        ok "swaync se arranca desde hyprland.lua"
+    else
+        warn "hyprland.lua no arranca swaync — no habra notificaciones"
+    fi
+else
+    warn "no encuentro $lua — no puedo verificar el arranque de los demonios"
+fi
+
 # Ningun __HOME__ debe haber sobrevivido a la sustitucion.
 # Ojo: grep devuelve 1 cuando no encuentra nada, y con 'set -e' eso
 # abortaria el script. Por eso el { ... || true; }.

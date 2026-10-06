@@ -23,7 +23,6 @@ qt6-wayland
 waybar
 swaync
 swayosd
-mako
 awww
 
 # --- Fondo y bloqueo ---

@@ -40,7 +40,7 @@ Luego **cierra sesión y vuelve a entrar** (no vale reiniciar el compositor).
 ### Qué hace
 
 1. Añade el repo externo `gh0stzk-dotfiles` a `/etc/pacman.conf` (con copia de seguridad)
-2. Instala las dependencias de `packages.txt` (60 paquetes) con `pacman`
+2. Instala las dependencias de `packages.txt` (59 paquetes) con `pacman`
 3. Instala **pywal** con `pipx` — no existe en los repos de Arch
 4. Guarda una copia de tu `~/.config` actual en `~/.config-backups/<fecha>/`
 5. Copia las configs a `~/.config/`, el shell a `~`, `scripts/`+`bin/` a tu home,
@@ -201,11 +201,15 @@ Si más adelante quieres otra imagen, cámbiala con tu gestor de fondos; `wallpa
 guarda la elección en `~/.cache/current_wallpaper` y a partir de ahí la respeta.
 Al cambiar de rice **no** se toca el fondo: si quieres el wallpaper de un rice, ponlo a mano.
 
-El fondo lo aplica **`awww`**, no hyprpaper. Es un demonio aparte:
+El fondo lo aplica **`awww`**, no hyprpaper.
 
-```bash
-systemctl --user enable --now awww-daemon.service
-```
+No hay que hacer nada: `hyprland.lua` arranca el demonio solo al iniciar sesión
+(`hl.exec_cmd("awww-daemon")`), igual que `hypridle` y `swaync`. No existen
+servicios systemd que habilitar. `install.sh` lo verifica al terminar.
+
+> Aviso: esto se corrigió tras comprobar que **no existe** ningún
+> `awww-daemon.service`. Las instrucciones antiguas que decían
+> `systemctl --user enable --now awww-daemon.service` eran falsas.
 
 **Waydroid** — los binds de `hyprland.conf` asumen el contenedor ya instalado.
 Ver [`waydroid-config`](https://github.com/runer0101/waydroid-config).
@@ -230,7 +234,7 @@ sola si existe (línea 323), pero **ese fichero no está en el repo**.
 ```
 entorno-arch/
 ├── install.sh          # instalador
-├── packages.txt        # 60 dependencias
+├── packages.txt        # 59 dependencias
 ├── config/             # -> ~/.config/
 ├── home/               # -> ~/
 ├── scripts/            # -> ~/scripts/
