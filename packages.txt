@@ -68,7 +68,6 @@ fd
 bat
 eza
 zoxide
-starship
 tree
 unzip
 curl

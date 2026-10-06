@@ -9,7 +9,7 @@ en otra laptop con Arch.
 
 [![Arch](https://img.shields.io/badge/arch-linux-1793d1?logo=archlinux&logoColor=white)](https://archlinux.org)
 [![Hyprland](https://img.shields.io/badge/Hyprland-%3E%3D0.56-5b9bd5?logo=hyprland&logoColor=white)](https://hypr.land)
-[![Licencia](https://img.shields.io/badge/licencia-MIT-blue.svg)](LICENSE)
+[![Licencia](https://img.shields.io/badge/licencia-GPL--3.0-blue.svg)](LICENSE)
 
 </div>
 
@@ -40,14 +40,15 @@ Luego **cierra sesión y vuelve a entrar** (no vale reiniciar el compositor).
 ### Qué hace
 
 1. Añade el repo externo `gh0stzk-dotfiles` a `/etc/pacman.conf` (con copia de seguridad)
-2. Instala las dependencias de `packages.txt` (59 paquetes) con `pacman`
+2. Instala las dependencias de `packages.txt` (58 paquetes) con `pacman`
 3. Instala **pywal** con `pipx` — no existe en los repos de Arch
 4. Guarda una copia de tu `~/.config` actual en `~/.config-backups/<fecha>/`
 5. Copia las configs a `~/.config/`, el shell a `~`, `scripts/`+`bin/` a tu home,
    `localbin/` a `~/.local/bin/` y `fonts/` a `~/.local/share/fonts/`
 6. Sustituye el token `__HOME__` por tu ruta real
 7. **Verifica** la instalación: cada config, los binarios críticos (`hyprctl`,
-   `waybar`, `wofi`, `awww`, `mako`…), los temas y que no quede ningún `__HOME__` suelto
+   `waybar`, `wofi`, `awww`, `swaync`, `gsettings`), los tres temas, que la sesión
+   arrancará `awww-daemon`/`hypridle`/`swaync`, y que no quede ningún `__HOME__` suelto
 
 > No lo ejecutes con `sudo`: instalaría las configs en `/root`.
 
@@ -84,6 +85,7 @@ Solo la parte visual. Es un `dotfiles` del escritorio, no de todo el sistema.
 | `config/gtk-3.0/` | Tema GTK |
 | `config/kanshi/` | Perfiles de pantalla |
 | `config/cava/` | Visualizador de audio |
+| `config/wal/` | Paleta teal personalizada (`3024` retocado) |
 | `home/` | `.zshrc`, `.bashrc`, `.gitconfig`, `.fzf.bash`, `.fzf.zsh` |
 | `scripts/` | 16 scripts propios → `~/scripts/` |
 | `bin/` | 6 ejecutables → `~/bin/` |
@@ -104,7 +106,7 @@ Tu barra **no usa módulos de waybar**: invoca binarios con nombre propio.
 Viven en `~/.local/bin/`. Sin ellos, waybar arranca y la barra sale **vacía**.
 Por eso `install.sh` los instala ahí y verifica que estén.
 
-### Temas:.repo externo
+### Temas: repo externo
 
 El tema no está en Arch. Viene de `gh0stzk-dotfiles`:
 
@@ -183,16 +185,30 @@ hyprlang está en `config/hypr/hyprland.conf.pre-lua` por si la necesitas.
 
 ## Ajustes manuales
 
+**Shell** — el repo te pone el `.zshrc` pero no cambia tu shell por defecto.
+Si quieres zsh:
+
+```bash
+chsh -s "$(command -v zsh)"   # cierra sesión y vuelve a entrar
+```
+
 **Teclado** — `config/hypr/hyprland.conf` tiene bloques `device{}` para el
 `by-tech-gaming-keyboard` con layout `es`. En otra laptop, edítalos o bórralos
 (Hyprland los ignora si el dispositivo no existe, pero es más limpio quitarlos).
 
-**Colores** — los estilos de wofi importan `~/.cache/wal/colors-*.css`, que
-genera pywal. Sin ejecutar `wal` al menos una vez, los menús salen sin color:
+**Colores** — los estilos de wofi y waybar importan `~/.cache/wal/colors-*.css`,
+que genera pywal. Sin ejecutar `wal` al menos una vez, los menús salen sin color.
+
+La paleta teal es un `3024` retocado y va en `config/wal/colorschemes/dark/3024.json`.
+`install.sh` lo copia a `~/.config/wal/`, así que se aplica solo al regenerar:
 
 ```bash
-wal -n ocean -i ~/Pictures/fondo.png
+wal -i ~/Pictures/wallpapers/arch-main.png    # usa la paleta del repo
+wal --theme                                   # lista los temas disponibles
 ```
+
+> Ojo con la sintaxis: el tema se asigna con `-p`, no con `-n` ni con `-t`
+> (esos son flags). Y no existe un tema llamado `ocean`.
 
 **Wallpaper** — el fondo por defecto es el **logo de Arch** (`wallpaper/arch-main.png`).
 `install.sh` lo pone en `~/Pictures/wallpapers/` y lo marca como fondo elegido.
@@ -234,7 +250,7 @@ sola si existe (línea 323), pero **ese fichero no está en el repo**.
 ```
 entorno-arch/
 ├── install.sh          # instalador
-├── packages.txt        # 59 dependencias
+├── packages.txt        # 58 dependencias
 ├── config/             # -> ~/.config/
 ├── home/               # -> ~/
 ├── scripts/            # -> ~/scripts/
@@ -244,6 +260,23 @@ entorno-arch/
 └── wallpaper/          # -> ~/Pictures/wallpapers/  (logo de Arch)
 ```
 
-## Licencia
+## Créditos y licencia
 
-MIT — ver [LICENSE](LICENSE). Los wallpapers y assets son míos salvo mención.
+Este repositorio es **GPL-3.0**, no MIT.
+
+Buena parte de lo que hay aquí viene de **[gh0stzk/dotfiles](https://github.com/gh0stzk/dotfiles)**
+(Copyright © 2021-2026 gh0stzk), que también es GPL-3.0. Al ser obra derivada, la
+GPL obliga a distribuirla bajo los mismos términos. Los ficheros originales llevan
+su cabecera de copyright y no se han eliminado.
+
+| Origen | Qué |
+|---|---|
+| **gh0stzk/dotfiles** (GPL-3.0) | `home/.zshrc`, `config/alacritty/alacritty.toml`, `config/hypr/rices/` (58 ficheros), parte de `config/hypr/scripts/`, `localbin/colorscript` |
+| **gh0stzk-dotfiles** (repo de paquetes) | Temas `TokyoNight-zk`, `TokyoNight-SE`, `Qogirr-Dark` |
+| **Mío** | `install.sh`, `packages.txt`, `wallpaper/`, `fonts/`, `scripts/`, `bin/`, `localbin/` propio y las personalizaciones sobre lo anterior |
+
+Si algún día quieres quitar lo de terceros, el núcleo del escritorio son los rices,
+el `.zshrc` y el `alacritty.toml`. Sin ellos queda el armazón pero no el aspecto.
+
+Ver [LICENSE](LICENSE) para el texto completo. Los wallpapers y assets que no vienen
+de gh0stzk son míos.
