@@ -1,0 +1,52 @@
+#!/bin/bash
+# Refresca los módulos custom/wsN de waybar en cuanto cambia algo de workspaces,
+# sin esperar al refresco periódico: se engancha al socket2 de Hyprland (que
+# escupe un evento por línea) y le manda SIGRTMIN+8 a waybar — la señal declarada
+# en "signal": 8 dentro de common.jsonc.
+#
+# Reconecta en bucle a propósito. La primera versión era un socat suelto y se
+# murió sola el 31 jul 2026 ("socat E write(1,...): Broken pipe"), dejando la
+# barra congelada: el pacman se quedaba en el workspace viejo al cambiar de
+# monitor. Un fallo así no se nota hasta que te fías de la barra, así que aquí se
+# reintenta siempre y además los módulos llevan su propio "interval" de red de
+# seguridad por si este proceso desaparece del todo.
+
+# Una sola instancia. El autostart es hl.on("hyprland.start"), que no se repite
+# al recargar Hyprland, pero cualquier arranque a mano dejaría un segundo proceso
+# mandando señales duplicadas por cada evento y reconectándose para siempre.
+exec 9>"${XDG_RUNTIME_DIR:-/tmp}/waybar-ws-listener.lock"
+flock -n 9 || exit 0
+
+sock_de_hyprland() {
+    printf '%s/hypr/%s/.socket2.sock' \
+        "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" "$HYPRLAND_INSTANCE_SIGNATURE"
+}
+
+while true; do
+    sock=$(sock_de_hyprland)
+
+    # Al arrancar la sesión Hyprland tarda un instante en crear el socket; y si
+    # Hyprland se reinicia, la firma de instancia cambia y el socket viejo
+    # desaparece. En ambos casos toca esperar aquí.
+    if [ ! -S "$sock" ]; then
+        sleep 2
+        continue
+    fi
+
+    # Los eventos llegan como "nombre>>datos"; nos quedamos con el nombre.
+    # Los de arriba cambian quién es el workspace enfocado (incluido focusedmon,
+    # que es el que dispara al saltar de monitor); los de abajo cambian el
+    # "vacío vs ocupado".
+    socat -u UNIX-CONNECT:"$sock" - 2>/dev/null | while IFS= read -r evento; do
+        case "${evento%%>>*}" in
+            workspace|workspacev2|focusedmon|focusedmonv2|\
+            createworkspace|createworkspacev2|destroyworkspace|destroyworkspacev2|\
+            openwindow|closewindow|movewindow|movewindowv2)
+                pkill -RTMIN+8 -x waybar
+                ;;
+        esac
+    done
+
+    # Si se llega aquí es que socat o el bucle se cayeron: se reintenta.
+    sleep 2
+done

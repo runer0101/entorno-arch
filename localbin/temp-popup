@@ -1,0 +1,190 @@
+#!/bin/bash
+# =============================================================
+#  temp-popup — acciones de temperatura y ventiladores
+#
+#  El hover del botón de temperatura en waybar ya muestra un tooltip
+#  detallado (CPU/GPU/SSD/RAM + ventiladores + consumo). Repetir esa
+#  info aquí era ruido. El popup es 100% accionable: cada línea es un
+#  botón que cambia el comportamiento del ventilador.
+#
+#  Estructura:
+#    1. Salir (foco por defecto en wofi → Esc/Enter = cerrar)
+#    2. Modo automático (perfil automático de NBFC → la curva temp/RPM
+#       del config; hp-wmi queda en "BIOS auto" como red de seguridad,
+#       pero mientras el daemon esté activo el dueño del EC es NBFC)
+#    3. Velocidades NBFC: Turbo / Alto / Medio / Silencioso
+#    4. Abrir btop (monitor completo)
+#
+#  ── Mecánica (6 oct 2026) ────────────────────────────────────
+#  Igual que el menú de red (NetManagerDM), por el mismo motivo y con
+#  la misma solución:
+#
+#  · INSTANCIA ÚNICA con interruptor: pulsar otra vez el botón de
+#    temperatura CIERRA el cuadro. Antes cada clic apilaba un wofi
+#    encima del anterior; al cerrarse uno emergía el de debajo y
+#    parecía que el menú "reaparecía" o cambiaba de tamaño solo.
+#
+#  · wofi va como VENTANA NORMAL (--normal-window), NO layer-shell.
+#    En layer-shell esa superficie agarra el teclado en exclusiva:
+#    mientras el menú está abierto Hyprland no entrega ni un clic a
+#    nadie y el escritorio entero queda bloqueado.
+#
+#  · El "clic fuera cierra" va por un bind NO CONSUMIDOR del
+#    compositor (wofi-outside-click.sh), igual que el launcher. Dentro
+#    del cuadro el clic sigue hasta wofi y elige la opción; fuera, lo
+#    cierra. Sin pkill global: el launcher u otros menús siguen vivos.
+#
+#  · El alto (-L) se calcula con las opciones que hay de verdad. Antes
+#    iba fijo en 7 y, sin NBFC, el cuadro salía medio vacío.
+#
+#  · Si una acción falla (casi siempre: sudo sin NOPASSWD), AVISA.
+#    Antes fallaba en silencio y el click no hacía nada, lo que es
+#    indistinguible de "el menú está roto".
+#
+#  NOTA — sin "Apagar ventiladores": poner pwm1 a 0 (NBFC 0.00 o
+#  pwm1_enable=0) deja RPM en 0 y el calor sube sin freno. En un
+#  portátil eso puede degradar CPU/GPU en poco tiempo. Para silencio
+#  usa "Silencioso" (25%); para dejar decidir a la BIOS, "Modo
+#  automático". Si querés un modo "off" tenés que hacerlo a mano y
+#  sabiendo lo que hacés.
+#
+#  NBFC si está listo → velocidades granulares.
+#  Sin NBFC → sólo hp-wmi (auto / manual).
+# =============================================================
+
+WOFI_STYLE="$HOME/.config/wofi/style-wlogout.css"
+[ -f "$WOFI_STYLE" ] || WOFI_STYLE="$HOME/.config/wofi/style.css"
+
+PWM="/sys/class/hwmon/hwmon7/pwm1_enable"
+
+notify() { notify-send -a "Temperatura" "Temperatura" "$1" 2>/dev/null; }
+
+# ── Instancia única + interruptor ──────────────────────────────
+# Un solo temp-popup a la vez. Si ya hay uno vivo, ESTE clic lo
+# cierra y termina. Lo que se mata es SÓLO lo nuestro: el PID de
+# este script y el del wofi que él abrió.
+LOCK_FILE="/tmp/temppopup.lock"
+PID_FILE="/tmp/temppopup.pid"
+WOFI_PID_FILE="/tmp/temppopup.wofi.pid"
+BIND_ACTIVO="/tmp/temppopup.bind"
+CLIC="$HOME/.config/hypr/scripts/wofi-outside-click.sh"
+
+# Testigo de "el bind está puesto": hl.unbind quita UNO por llamada,
+# así que sin esto cada apertura dejaba un mouse:272 de más.
+poner_bind() {
+    [ -e "$BIND_ACTIVO" ] && return 0
+    hyprctl eval "hl.bind(\"mouse:272\", hl.dsp.exec_cmd(\"$CLIC $WOFI_PID_FILE\"), { non_consuming = true })" >/dev/null 2>&1 \
+        && : > "$BIND_ACTIVO"
+}
+quitar_bind() {
+    [ -e "$BIND_ACTIVO" ] || return 0
+    hyprctl eval 'hl.unbind("mouse:272")' >/dev/null 2>&1
+    # >/dev/null en todo lo que limpia: menu() se llama dentro de
+    # `sel=$( ... | menu ... )`, así que CUALQUIER salida por stdout
+    # se cuela en $sel y corrupta la opción elegida.
+    rm -f "$BIND_ACTIVO" >/dev/null 2>&1
+}
+
+single_instance() {
+    exec 9>"$LOCK_FILE"
+    if ! flock -n 9; then
+        local old wofi_old
+        old=$(cat "$PID_FILE" 2>/dev/null)
+        [ -n "$old" ] && kill "$old" 2>/dev/null
+        wofi_old=$(cat "$WOFI_PID_FILE" 2>/dev/null)
+        [ -n "$wofi_old" ] && kill "$wofi_old" 2>/dev/null
+        exit 0
+    fi
+    echo $$ > "$PID_FILE"
+    trap 'rm -f "$PID_FILE" "$WOFI_PID_FILE"' EXIT
+    # Un bind que se quedó de una ejecución anterior se retira al
+    # entrar, para no arrastrarlo.
+    [ -e "$BIND_ACTIVO" ] && quitar_bind
+}
+
+# ── Cuadro ────────────────────────────────────────────────────
+# Las opciones llegan por stdin. El alto se ajusta al contenido
+# (tope MAX_LINES) en vez de ir fijo.
+MAX_LINES=8
+
+menu() {
+    local prompt="$1" items n pid
+    items=$(cat)
+    n=$(printf '%s\n' "$items" | grep -c .)
+    [ "$n" -ge 1 ] || return 1
+    [ "$n" -gt "$MAX_LINES" ] && n="$MAX_LINES"
+    poner_bind
+    # OJO: hay que volver a pasarle los ítems por tubería. Arriba se
+    # consumieron con `items=$(cat)`, así que el stdin de esta función
+    # ya está a EOF; sin redirigir, wofi abriría VACÍO.
+    printf '%s\n' "$items" | wofi --dmenu --normal-window --hide-search \
+        --insensitive --cache-file=/dev/null -L "$n" --prompt "$prompt" \
+        --style "$WOFI_STYLE" 2>/dev/null &
+    pid=$!
+    echo "$pid" > "$WOFI_PID_FILE" 2>/dev/null
+    wait "$pid"
+    quitar_bind
+    rm -f "$WOFI_PID_FILE" >/dev/null 2>&1
+}
+
+# ── ¿NBFC está listo? ──────────────────────────────────────────
+nbfc_ready=0
+if systemctl is-active --quiet nbfc_service 2>/dev/null \
+   && sudo -n nbfc status -a >/dev/null 2>&1; then
+    nbfc_ready=1
+fi
+
+# ── Menú: SOLO acciones (la info ya está en el hover) ──────────
+# Va PRIMERO el interruptor de instancia única: si ya hay un cuadro
+# abierto, este clic lo cierra y no llega a abrir otro.
+single_instance
+
+ACT_EXIT="✖  Salir"
+ACT_AUTO="󱐋  Modo automático"
+ACT_BTOP="󰊠  Abrir btop"
+
+sel=$({
+    printf '%s\n' "$ACT_EXIT"
+
+    if [ "$nbfc_ready" = 1 ]; then
+        printf '%s\n' "$ACT_AUTO"
+        printf '%s\n' "󰜅  Turbo"
+        printf '%s\n' "⚡  Alto"
+        printf '%s\n' "󰟌  Medio"
+        printf '%s\n' "󰈐  Silencioso"
+    else
+        printf '%s\n' "$ACT_AUTO"
+        printf '%s\n' "󰛨  Modo manual"
+    fi
+
+    printf '%s\n' "$ACT_BTOP"
+} | menu "  Temperatura")
+
+[ -z "$sel" ] && exit 0
+
+if [ "$nbfc_ready" = 1 ]; then
+    case "$sel" in
+        *automático*)
+            # Mientras NBFC esté activo, el dueño real del EC es el
+            # daemon (no la BIOS). Hay que liberar manual ANTES de
+            # tocar hp-wmi, si no los ventiladores quedan en el último
+            # Target de NBFC y el click "no hace nada".
+            sudo -n nbfc set -a >/dev/null 2>&1
+            echo 2 | sudo -n tee "$PWM" >/dev/null 2>&1
+            notify "󱐋 Ventiladores en modo automático"
+            ;;
+        *Turbo*)      sudo -n nbfc set -s 100 >/dev/null 2>&1 && notify "󰜅 Turbo" ;;
+        *Alto*)       sudo -n nbfc set -s 75  >/dev/null 2>&1 && notify "⚡ Alto" ;;
+        *Medio*)      sudo -n nbfc set -s 50  >/dev/null 2>&1 && notify "󰟌 Medio" ;;
+        *Silencioso*) sudo -n nbfc set -s 25  >/dev/null 2>&1 && notify "󰈐 Silencioso" ;;
+    esac
+else
+    case "$sel" in
+        *automático*) echo 2 | sudo -n tee "$PWM" >/dev/null 2>&1 && notify "󱐋 Modo automático" ;;
+        *manual*)     echo 1 | sudo -n tee "$PWM" >/dev/null 2>&1 && notify "󰛨 Modo manual" ;;
+    esac
+fi
+
+case "$sel" in
+    *Abrir\ btop*) kitty --hold 'exec btop' & ;;
+esac

@@ -1,0 +1,31 @@
+#!/bin/bash
+# =============================================================
+#  updates-popup — popup estilo wlogout al pulsar el botón de updates
+#
+#  Mismo contenido que ~/.config/hypr/scripts/updates-menu.sh
+#  (las dos acciones: Salir y Actualizar paquetes), pero con el
+#  look wlogout replicado en ~/.config/wofi/style-wlogout.css.
+#
+#  El menú anterior sigue existiendo por si se quiere volver a él.
+# =============================================================
+
+WOFI_STYLE="$HOME/.config/wofi/style-wlogout.css"
+[ -f "$WOFI_STYLE" ] || WOFI_STYLE="$HOME/.config/wofi/style.css"
+
+ACT_EXIT="✖  Salir"
+ACT_UPDATE="󰚰  Actualizar paquetes"
+
+# Salir PRIMERO (mismo patrón que updates-menu.sh y NetManagerDM):
+# wofi enfoca la primera entrada por defecto, así Esc y Enter sobre
+# "Salir" son la salida segura cuando se abre el popup "sin querer".
+sel=$(printf '%s\n%s\n' "$ACT_EXIT" "$ACT_UPDATE" \
+    | wofi --dmenu --normal-window --hide-search --insensitive \
+           --cache-file=/dev/null -L 2 --prompt "  Actualizaciones" \
+           --style "$WOFI_STYLE" 2>/dev/null)
+
+case "$sel" in
+    "$ACT_UPDATE")
+        kitty --hold -e sh -c 'echo Actualizando...; paru -Syu --nocombinedupgrade; read _ </dev/tty 2>/dev/null'
+        ;;
+    *) exit 0 ;;
+esac

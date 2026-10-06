@@ -1,0 +1,106 @@
+#!/bin/bash
+# =============================================================
+#  network-popup — popup estilo wlogout al pulsar el botón de red
+#
+#  Recoge la misma info que waybar-network (IP, velocidades,
+#  ping, señal) y la presenta como tarjetas verticales con el
+#  estilo de ~/.config/wofi/style-wlogout.css.
+#
+#  La última tarjeta es una ACCIÓN: abre el NetManagerDM completo
+#  (ver redes, olvidar, hotspot, VPN…). Aquí solo se muestra un
+#  resumen rápido sin abrumar.
+# =============================================================
+
+WOFI_STYLE="$HOME/.config/wofi/style-wlogout.css"
+[ -f "$WOFI_STYLE" ] || WOFI_STYLE="$HOME/.config/wofi/style.css"
+
+# ── Recolección de datos (mismo esquema que waybar-network) ──
+iface=$(ip route show default 2>/dev/null | awk '{print $5; exit}')
+
+# Sin iface = sin red. Una sola tarjeta informativa + acción.
+# Salir primero (mismo patrón que el resto del sistema).
+if [ -z "$iface" ]; then
+    _out=$(mktemp)
+    trap 'rm -f "$_out"' EXIT
+    printf '✖  Salir\n󰈂  Sin conexión\n󰤨  Abrir gestor de redes →\n' \
+        | wofi --dmenu --normal-window --hide-search --insensitive \
+               --cache-file=/dev/null -L 3 --prompt "  Red" \
+               --style "$WOFI_STYLE" 2>/dev/null > "$_out" &
+    wofi_pid=$!
+    wofi-autoclose.sh "$wofi_pid" &
+    ac_pid=$!
+    wait "$wofi_pid"
+    sel=$(<"$_out")
+    kill "$ac_pid" 2>/dev/null
+    case "$sel" in *"Abrir gestor"*) OpenApps --netmanager ;; esac
+    exit 0
+fi
+
+ip_addr=$(ip -4 addr show dev "$iface" 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1 | head -1)
+
+# Tasas (relee el último cache escrito por waybar-network — así se
+# evita duplicar la lógica y se mantiene consistencia con la píldora)
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/waybar-network-prev"
+read -r _ _ _ _ down_bps up_bps < "$CACHE" 2>/dev/null
+: "${down_bps:=0}" "${up_bps:=0}"
+
+human_rate() {
+    local b="$1"
+    if   [ "$b" -ge 1073741824 ]; then awk -v b="$b" 'BEGIN{printf "%.1f G/s", b/1073741824}'
+    elif [ "$b" -ge 1048576 ];    then awk -v b="$b" 'BEGIN{printf "%.1f M/s", b/1048576}'
+    elif [ "$b" -ge 1024 ];       then awk -v b="$b" 'BEGIN{printf "%.0f K/s", b/1024}'
+    else printf '%d B/s' "$b"
+    fi
+}
+down_h=$(human_rate "$down_bps")
+up_h=$(human_rate "$up_bps")
+
+# WiFi o cable
+ssid=$(iwgetid -r 2>/dev/null)
+if [ -n "$ssid" ]; then
+    iw_link=$(iw dev "$iface" link 2>/dev/null)
+    dbm=$(awk '/signal:/{print $2; exit}' <<< "$iw_link")
+    if [ -n "$dbm" ]; then
+        pct=$(( 2 * (dbm + 100) )); [ "$pct" -gt 100 ] && pct=100; [ "$pct" -lt 0 ] && pct=0
+        if   [ "$pct" -ge 75 ]; then bars="▂▄▆█"
+        elif [ "$pct" -ge 50 ]; then bars="▂▄▆░"
+        elif [ "$pct" -ge 25 ]; then bars="▂▄░░"
+        else                         bars="▂░░░"
+        fi
+    fi
+    freq=$(awk '/freq:/{print int($2); exit}' <<< "$iw_link")
+    band="2.4 GHz"; [ -n "$freq" ] && [ "$freq" -ge 4900 ] && band="5 GHz"
+    header_icon="󰤩"   # icono WiFi
+    iface_label="${ssid} · ${band}"
+else
+    header_icon="󰈀"   # icono cable
+    iface_label="Cable (${iface})"
+fi
+
+# Ping (cache 30 s que escribe waybar-network)
+PING_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/waybar-ping"
+ping_ms=$(cat "$PING_CACHE" 2>/dev/null)
+
+# ── Tarjetas ──
+# Salir va PRIMERO: coincide con el patrón de updates-menu.sh y de los
+# demás menús del sistema (NetManagerDM, BluetoothDM…). wofi enfoca la
+# primera entrada por defecto, así Esc y Enter sobre "Salir" son la
+# salida segura cuando se abre el popup "sin querer".
+ACT_EXIT="✖  Salir"
+{
+    printf '%s\n' "$ACT_EXIT"
+    printf '%s  %s\n' "$header_icon" "$iface_label"
+    printf '   󰩟  %s\n' "$ip_addr"
+    printf '   󰇚  Bajando  %s\n' "$down_h"
+    printf '   󰕒  Subiendo  %s\n' "$up_h"
+    [ -n "$ping_ms" ] && printf '   󰁦  Ping  %s ms\n' "$ping_ms"
+    [ -n "$ssid" ] && [ -n "$pct" ] && printf '   󰤡  Señal  %s  %s%%\n' "$bars" "$pct"
+    printf '   󰤨  Abrir gestor de redes →\n'
+} | wofi --dmenu --normal-window --hide-search --insensitive \
+        --cache-file=/dev/null -L 7 --prompt "  Red  ·  ${iface}" \
+        --style "$WOFI_STYLE" 2>/dev/null | {
+    read -r sel
+    case "$sel" in
+        *"Abrir gestor"*) OpenApps --netmanager ;;
+    esac
+}

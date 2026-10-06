@@ -13,7 +13,6 @@
 hyprland
 hypridle
 hyprlock
-hyprpaper
 hyprpicker
 xdg-desktop-portal
 xdg-desktop-portal-hyprland
@@ -24,10 +23,10 @@ qt6-wayland
 waybar
 swaync
 swayosd
-swappy
+mako
+awww
 
 # --- Fondo y bloqueo ---
-swaybg
 
 # --- Menus y lanzadores ---
 wofi
@@ -52,6 +51,7 @@ qt6ct
 # --- Fuentes ---
 ttf-jetbrains-mono
 ttf-jetbrains-mono-nerd
+ttf-ubuntu-mono-nerd
 ttf-liberation
 ttf-dejavu
 noto-fonts
@@ -87,3 +87,10 @@ python-pip
 python-pipx
 rsync
 sudo
+# --- Temas (repo externo gh0stzk-dotfiles) ---
+# install.sh anade ese repo a /etc/pacman.conf antes de llegar aqui.
+# Sin estos tres, el escritorio arranca SIN tema: apply-gtk.sh aplica
+# TokyoNight-zk / TokyoNight-SE / Qogirr-Dark y si faltan, se ve sin estilo.
+gh0stzk-gtk-themes
+gh0stzk-icons-tokyo-night
+gh0stzk-cursor-qogirr

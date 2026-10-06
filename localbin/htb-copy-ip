@@ -1,0 +1,16 @@
+#!/bin/bash
+# Copia al portapapeles la IP de la VPN de HTB (la que muestra waybar-htb).
+iface=""
+while read -r name; do
+    case "$name" in
+        tun[0-9]*|*htb*) iface="$name"; break ;;
+    esac
+done < <(ip -o link show up 2>/dev/null | awk -F': ' '{print $2}' | cut -d@ -f1)
+
+[ -z "$iface" ] && { notify-send -u low "HTB" "No hay VPN de HTB conectada"; exit 1; }
+
+ip_addr=$(ip -4 addr show dev "$iface" 2>/dev/null | awk '/inet /{print $2; exit}' | cut -d/ -f1)
+[ -z "$ip_addr" ] && { notify-send -u low "HTB" "La interfaz ${iface} no tiene IPv4"; exit 1; }
+
+printf '%s' "$ip_addr" | wl-copy
+notify-send -u low "HTB" "IP copiada: ${ip_addr}"

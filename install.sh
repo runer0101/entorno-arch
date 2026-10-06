@@ -34,12 +34,18 @@ warn()  { printf '\033[33m  !!\033[0m %s\n' "$1"; }
 err()   { printf '\033[31m xx\033[0m %s\n' "$1" >&2; }
 
 # Sustituye el token de portabilidad __HOME__ por la ruta real del usuario.
-# Necesario en config/, home/, scripts/ y bin/ por igual.
+# Necesario en config/, home/, scripts/, bin/, localbin/ y fonts/.
+#
+# Ojo con esto: grep devuelve 1 cuando NO encuentra nada. Con 'set -e' + pipefail
+# eso abortaria el script entero en silencio justo aqui. Por eso se captura la
+# salida con '|| true' y se comprueba antes de iterar.
 substitute_paths() {
-    local target="$1"
-    grep -rIl '__HOME__' "$target" 2>/dev/null | while read -r f; do
+    local target="$1" encontrados
+    encontrados=$(grep -rIl '__HOME__' "$target" 2>/dev/null || true)
+    [[ -z "$encontrados" ]] && return 0
+    while read -r f; do
         sed -i "s|__HOME__|$HOME|g" "$f"
-    done
+    done <<< "$encontrados"
     return 0
 }
 
@@ -78,8 +84,34 @@ echo
 
 [[ $DRY_RUN -eq 1 ]] || mkdir -p "$BACKUP"
 
-# ---------------------------------------------------------- 1. paquetes
+# ------------------------------------------------------- 1. repo externo
+# Los temas (TokyoNight-zk, TokyoNight-SE, Qogirr-Dark) NO estan en los repos
+# de Arch: vienen del repo gh0stzk-dotfiles. Sin anadirlo, el escritorio
+# arranca sin tema porque apply-gtk.sh no encuentra esos ficheros.
+add_theme_repo() {
+    if grep -q '^\[gh0stzk-dotfiles\]' /etc/pacman.conf 2>/dev/null; then
+        ok "repo gh0stzk-dotfiles ya configurado"
+        return 0
+    fi
+    if [[ $DRY_RUN -eq 1 ]]; then
+        echo "  anadir [gh0stzk-dotfiles] a /etc/pacman.conf"
+        return 0
+    fi
+    warn "Se anade el repo externo gh0stzk-dotfiles a /etc/pacman.conf"
+    warn "  (va por HTTP con TrustAll; es como lo tienes ya en tu maquina)"
+    cp /etc/pacman.conf /etc/pacman.conf.entorno-arch.bak
+    cat >> /etc/pacman.conf <<'REPO'
+
+[gh0stzk-dotfiles]
+SigLevel = Optional TrustAll
+Server = http://gh0stzk.github.io/pkgs/x86_64
+REPO
+    sudo pacman -Sy --noconfirm >/dev/null 2>&1 || true
+    ok "repo anadido (backup en /etc/pacman.conf.entorno-arch.bak)"
+}
+
 if [[ $DO_PACKAGES -eq 1 ]]; then
+    add_theme_repo
     info "Instalando paquetes de los repos de Arch (pide sudo)..."
     if [[ $DRY_RUN -eq 1 ]]; then
         echo "  sudo pacman -S --needed - < packages.txt"
@@ -189,7 +221,46 @@ if [[ -d "$REPO/bin" ]]; then
     fi
 fi
 
-# --------------------------------------------------------- 5. verificacion
+# --------------------------------------------------- 5. localbin/ y fonts/
+# localbin/ -> ~/.local/bin/  (scripts que las configs invocan por nombre:
+#                              waybar-cpu no es un modulo de waybar, es un
+#                              script propio. Sin esto la barra va vacia).
+if [[ -d "$REPO/localbin" ]]; then
+    if [[ $DRY_RUN -eq 1 ]]; then
+        info "localbin/ -> ~/.local/bin/"
+    else
+        mkdir -p "$HOME/.local/bin"
+        rsync -a "$REPO/localbin/" "$HOME/.local/bin/"
+        substitute_paths "$HOME/.local/bin"
+        chmod +x "$HOME/.local/bin"/* 2>/dev/null || true
+        ok "localbin/ ($(ls "$HOME/.local/bin" | wc -l) scripts)"
+    fi
+fi
+
+# fonts/ -> ~/.local/share/fonts/
+# Fuentes instaladas a mano (Material Design Icons, Font Awesome 6, etc.).
+# Sin ellas los iconos de waybar salen como cuadritos vacios.
+if [[ -d "$REPO/fonts" ]]; then
+    if [[ $DRY_RUN -eq 1 ]]; then
+        info "fonts/ -> ~/.local/share/fonts/"
+    else
+        mkdir -p "$HOME/.local/share/fonts"
+        rsync -a "$REPO/fonts/" "$HOME/.local/share/fonts/"
+        if command -v fc-cache >/dev/null 2>&1; then
+            if fc-cache -f >/dev/null 2>&1; then
+                ok "fonts/ ($(ls "$REPO/fonts" | wc -l) familias, cache regenerada)"
+            else
+                ok "fonts/ ($(ls "$REPO/fonts" | wc -l) familias)"
+                warn "fc-cache fallo: las fuentes cargaran al reiniciar la sesion"
+            fi
+        else
+            ok "fonts/ ($(ls "$REPO/fonts" | wc -l) familias)"
+            warn "fc-cache no disponible: reinicia la sesion para que las fuentes carguen"
+        fi
+    fi
+fi
+
+# --------------------------------------------------------- 6. verificacion
 echo
 info "Verificando la instalacion..."
 
@@ -205,6 +276,24 @@ for f in .zshrc .bashrc .gitconfig; do
 done
 check_file "$HOME/scripts" "scripts/ ($(ls "$HOME"/scripts 2>/dev/null | wc -l) ficheros)"
 check_file "$HOME/bin" "bin/ ($(ls "$HOME"/bin 2>/dev/null | wc -l) ficheros)"
+check_file "$HOME/.local/bin" "localbin/ ($(ls "$HOME"/.local/bin 2>/dev/null | wc -l) scripts)"
+check_file "$HOME/.local/share/fonts" "fonts/ ($(ls "$HOME"/.local/share/fonts 2>/dev/null | wc -l) familias)"
+
+# Binarios criticos del escritorio. Faltar uno = escritorio roto o sin estilo.
+echo
+info "Comprobando dependencias criticas..."
+for b in hyprctl waybar wofi awww mako swaync gsettings; do
+    if command -v "$b" >/dev/null 2>&1; then
+        ok "$b"
+    else
+        warn "$b no instalado — falta el paquete"
+    fi
+done
+
+# Los temas vienen del repo externo gh0stzk-dotfiles
+for t in /usr/share/themes/TokyoNight-zk /usr/share/icons/TokyoNight-SE /usr/share/icons/Qogirr-Dark; do
+    [[ -e "$t" ]] && ok "$(basename "$t")" || warn "FALTA el tema $(basename "$t") — revisa el repo gh0stzk-dotfiles"
+done
 
 # Ningun __HOME__ debe haber sobrevivido a la sustitucion.
 # Ojo: grep devuelve 1 cuando no encuentra nada, y con 'set -e' eso

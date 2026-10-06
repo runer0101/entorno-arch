@@ -1,0 +1,62 @@
+#!/bin/bash
+# Módulo waybar: pinta UN workspace clickeable. Se usa uno por número
+# (custom/ws1 … custom/ws10, ver common.jsonc).
+#
+# ── Por qué no usamos el módulo hyprland/workspaces ──
+# Ese módulo salta de workspace mandando el dispatch legacy "dispatch workspace N"
+# por el socket IPC de Hyprland. Desde que la config es Lua (Hyprland 0.56) el IPC
+# envuelve lo que recibe en `return hl.dispatch(...)`, así que le llega
+# `hl.dispatch(workspace 3)` y muere con error de sintaxis Lua. Resultado: el clic
+# no hacía nada, mientras que Super+N seguía bien porque es un hl.bind del
+# hyprland.lua y no pasa por el IPC. Se comprueba a mano:
+#     hyprctl dispatch workspace 3                       → error: ')' expected near '3'
+#     hyprctl dispatch 'hl.dsp.focus({ workspace = 3 })'  → ok
+#
+# El módulo ext/workspaces sí clickea (activa por el protocolo Wayland
+# ext-workspace-v1, sin tocar el IPC), pero ese protocolo sólo informa
+# active/urgent/hidden: no dice si el workspace tiene ventanas, y se perdía la
+# bolita morada de "vacío". Por eso el icono lo decidimos aquí.
+#
+# Uso: waybar-ws N
+# El clic NO lo maneja este script: lo lanza waybar (on-click en common.jsonc).
+
+ws="$1"
+[[ "$ws" =~ ^[0-9]+$ ]] || { echo '{}'; exit 0; }
+
+# Una sola llamada a hyprctl para los dos datos que hacen falta:
+#   monitors   → el workspace activo de la pantalla ENFOCADA
+#   workspaces → cuántas ventanas tiene cada uno
+#
+# El select(.focused) importa con dos monitores: cada pantalla tiene su propio
+# activeWorkspace, así que sin filtrar salían DOS pacman a la vez (uno por
+# monitor). El pacman marca dónde tienes el foco, y el foco es uno solo. El
+# workspace visible en la otra pantalla cae a fantasma o bolita según tenga
+# ventanas, como cualquier otro.
+lectura=$(hyprctl -j --batch "monitors;workspaces" 2>/dev/null | jq -r -s --argjson w "$ws" '
+    ([.[0][] | select(.focused) | .activeWorkspace.id] | index($w)) as $activo
+    | ([.[1][] | select(.id == $w) | .windows] | first // 0) as $n
+    | "\(if $activo != null then "active" elif $n > 0 then "occupied" else "empty" end) \($n)"
+' 2>/dev/null)
+
+estado=${lectura%% *}
+ventanas=${lectura##* }
+# Si hyprctl falla (arranque de sesión, recarga) no dejamos el módulo en blanco.
+[ -z "$estado" ] && { estado="empty"; ventanas=0; }
+
+case "$estado" in
+    active)   icono="<span font='JetBrainsMono Nerd Font Mono' foreground='#e0af68' size='x-large'>󰮯</span>" ;;
+    occupied) icono="<span font='JetBrainsMono Nerd Font Mono' foreground='#7aa2f7' size='large'>󰊠</span>" ;;
+    *)        icono="<span font='JetBrainsMono Nerd Font Mono' foreground='#583794' size='large'>󰑊</span>" ;;
+esac
+
+case "$ventanas" in
+    0) detalle="vacío" ;;
+    1) detalle="1 ventana" ;;
+    *) detalle="${ventanas} ventanas" ;;
+esac
+[ "$estado" = "active" ] && detalle="activo · ${detalle}"
+
+jq -nc --arg text "${icono} ${ws}" \
+       --arg tooltip "<span font_family='JetBrainsMono Nerd Font'>Workspace ${ws} — ${detalle}</span>" \
+       --arg class "$estado" \
+       '{text:$text, tooltip:$tooltip, class:$class}'

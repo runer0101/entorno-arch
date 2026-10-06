@@ -39,12 +39,15 @@ Luego **cierra sesión y vuelve a entrar** (no vale reiniciar el compositor).
 
 ### Qué hace
 
-1. Instala las dependencias de `packages.txt` (57 paquetes) con `pacman`
-2. Instala **pywal** con `pipx` — no existe en los repos de Arch
-3. Guarda una copia de tu `~/.config` actual en `~/.config-backups/<fecha>/`
-4. Copia las configs a `~/.config/`, el shell a `~`, y `scripts/` + `bin/` a tu home
-5. Sustituye el token `__HOME__` por tu ruta real
-6. **Verifica** la instalación y avisa si algo falta
+1. Añade el repo externo `gh0stzk-dotfiles` a `/etc/pacman.conf` (con copia de seguridad)
+2. Instala las dependencias de `packages.txt` (60 paquetes) con `pacman`
+3. Instala **pywal** con `pipx` — no existe en los repos de Arch
+4. Guarda una copia de tu `~/.config` actual en `~/.config-backups/<fecha>/`
+5. Copia las configs a `~/.config/`, el shell a `~`, `scripts/`+`bin/` a tu home,
+   `localbin/` a `~/.local/bin/` y `fonts/` a `~/.local/share/fonts/`
+6. Sustituye el token `__HOME__` por tu ruta real
+7. **Verifica** la instalación: cada config, los binarios críticos (`hyprctl`,
+   `waybar`, `wofi`, `awww`, `mako`…), los temas y que no quede ningún `__HOME__` suelto
 
 > No lo ejecutes con `sudo`: instalaría las configs en `/root`.
 
@@ -82,14 +85,45 @@ Solo la parte visual. Es un `dotfiles` del escritorio, no de todo el sistema.
 | `config/kanshi/` | Perfiles de pantalla |
 | `config/cava/` | Visualizador de audio |
 | `home/` | `.zshrc`, `.bashrc`, `.gitconfig`, `.fzf.bash`, `.fzf.zsh` |
-| `scripts/` | 16 scripts propios |
-| `bin/` | 6 ejecutables (Waydroid, Minecraft) |
+| `scripts/` | 16 scripts propios → `~/scripts/` |
+| `bin/` | 6 ejecutables → `~/bin/` |
+| `localbin/` | 10 scripts que las configs invocan **por nombre** → `~/.local/bin/` |
+| `fonts/` | 12 fuentes instaladas a mano → `~/.local/share/fonts/` |
+
+### Por qué `localbin/` es imprescindible
+
+Tu barra **no usa módulos de waybar**: invoca binarios con nombre propio.
+
+```jsonc
+"exec": "waybar-cpu"      // no es un módulo, es tu script
+"exec": "waybar-ram"
+"exec": "waybar-htb"
+```
+
+Viven en `~/.local/bin/`. Sin ellos, waybar arranca y la barra sale **vacía**.
+Por eso `install.sh` los instala ahí y verifica que estén.
+
+### Temas:.repo externo
+
+El tema no está en Arch. Viene de `gh0stzk-dotfiles`:
+
+| Tema | Paquete | Qué es |
+|---|---|---|
+| `TokyoNight-zk` | `gh0stzk-gtk-themes` | Tema GTK |
+| `TokyoNight-SE` | `gh0stzk-icons-tokyo-night` | Iconos |
+| `Qogirr-Dark` | `gh0stzk-cursor-qogirr` | Cursor |
+
+`install.sh --packages` añade ese repo a `/etc/pacman.conf` (guardando copia) antes
+de instalar. Sin él, `apply-gtk.sh` no encuentra los ficheros y el escritorio
+arranca **sin estilo**.
 
 ### Qué NO incluye
 
 - **Claves o tokens** — van aparte en `~/.secrets/keys.env`, nunca en el repo
 - **Waydroid como app** — solo los scripts que lo lanzan
 - **Neovim** — era un clon sin modificar de [NvChad/starter][nvchad], no configuración propia
+- **Apps y agentes de IA** — `claude`, `copilot`, `opencode`, `pnpm`, `zed`,
+  `telegram`… van por su cuenta (pipx, npm o AUR)
 - **Android SDK**, herramientas de desarrollo, cachés ni datos de aplicaciones
 
 [nvchad]: https://github.com/NvChad/starter
@@ -159,11 +193,18 @@ genera pywal. Sin ejecutar `wal` al menos una vez, los menús salen sin color:
 wal -n ocean -i ~/Pictures/fondo.png
 ```
 
-**Secretos** — crea `~/.secrets/keys.env` con tus claves. Tu `.zshrc` lo carga
-sola si existe (línea 323), pero **ese fichero no está en el repo**.
+**Wallpaper** — el fondo lo pone **`awww`**, no hyprpaper. Es un demonio aparte
+que debe arrancar antes que `wallpaper.sh`:
+
+```bash
+systemctl --user enable --now awww-daemon.service
+```
 
 **Waydroid** — los binds de `hyprland.conf` asumen el contenedor ya instalado.
 Ver [`waydroid-config`](https://github.com/runer0101/waydroid-config).
+
+**Secretos** — crea `~/.secrets/keys.env` con tus claves. Tu `.zshrc` lo carga
+sola si existe (línea 323), pero **ese fichero no está en el repo**.
 
 ---
 
@@ -182,11 +223,13 @@ Ver [`waydroid-config`](https://github.com/runer0101/waydroid-config).
 ```
 entorno-arch/
 ├── install.sh          # instalador
-├── packages.txt        # 57 dependencias
+├── packages.txt        # 60 dependencias
 ├── config/             # -> ~/.config/
 ├── home/               # -> ~/
 ├── scripts/            # -> ~/scripts/
-└── bin/                # -> ~/bin/
+├── bin/                # -> ~/bin/
+├── localbin/           # -> ~/.local/bin/   (scripts que waybar invoca por nombre)
+└── fonts/              # -> ~/.local/share/fonts/
 ```
 
 ## Licencia

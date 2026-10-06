@@ -1,0 +1,59 @@
+#!/bin/bash
+# Módulo waybar: IP de la VPN de Hack The Box (Academy / Labs).
+# El módulo desaparece por completo cuando la VPN no está conectada:
+# waybar oculta los módulos custom cuyo texto está vacío, y las llaves
+# { } se emiten desde aquí para que no queden huérfanas al desconectar.
+
+HTB_GREEN='#9fef00'
+BRACKET='#565f89'
+
+hidden() { jq -nc '{text:"", tooltip:"", class:""}'; exit 0; }
+
+# Interfaz de HTB: tun numerada (tun0, tun1...) o cualquiera con "htb" en
+# el nombre. No se buscan wg*/proton* para no confundir con otras VPNs.
+iface=""
+while read -r name; do
+    case "$name" in
+        tun[0-9]*|*htb*) iface="$name"; break ;;
+    esac
+done < <(ip -o link show up 2>/dev/null | awk -F': ' '{print $2}' | cut -d@ -f1)
+
+[ -z "$iface" ] && hidden
+
+ip_addr=$(ip -4 addr show dev "$iface" 2>/dev/null | awk '/inet /{print $2; exit}' | cut -d/ -f1)
+[ -z "$ip_addr" ] && hidden
+
+# El logo (cubo oficial de HTB) lo pone el CSS como background-image;
+# aquí solo va la IP en verde HTB. El padding-left del CSS reserva el hueco.
+text="<span font='JetBrainsMono Nerd Font' color='${HTB_GREEN}'>${ip_addr}</span>"
+
+human() {
+    local b=$1
+    if   [ "$b" -ge 1073741824 ]; then awk -v b="$b" 'BEGIN{printf "%.1f GiB", b/1073741824}'
+    elif [ "$b" -ge 1048576 ];    then awk -v b="$b" 'BEGIN{printf "%.1f MiB", b/1048576}'
+    elif [ "$b" -ge 1024 ];       then awk -v b="$b" 'BEGIN{printf "%.1f KiB", b/1024}'
+    else echo "${b} B"; fi
+}
+
+rx=$(cat "/sys/class/net/${iface}/statistics/rx_bytes" 2>/dev/null || echo 0)
+tx=$(cat "/sys/class/net/${iface}/statistics/tx_bytes" 2>/dev/null || echo 0)
+
+# Relleno por caracteres (no bytes): printf desalinea con ñ/tildes
+row() {
+    local pad=$((10 - ${#1})); [ "$pad" -lt 1 ] && pad=1
+    printf ' %s%*s%s' "$1" "$pad" '' "$2"
+}
+
+nl=$'\n'
+tooltip="<span foreground='${HTB_GREEN}'><b>  Hack The Box</b></span>${nl}"
+tooltip+="<span foreground='${BRACKET}'>────────────────────────────</span>${nl}"
+tooltip+="<span foreground='${HTB_GREEN}'>$(row 'Tu IP' "${ip_addr}")</span>${nl}"
+tooltip+="$(row 'Interfaz' "${iface}")${nl}"
+tooltip+="$(row 'Bajada' "$(human "$rx")")${nl}"
+tooltip+="$(row 'Subida' "$(human "$tx")")${nl}"
+tooltip+="<span foreground='${BRACKET}'>────────────────────────────</span>${nl}"
+tooltip+="<span foreground='${BRACKET}'> Clic para copiar la IP</span>"
+tooltip="<span font_family='JetBrainsMono Nerd Font'>${tooltip}</span>"
+
+jq -nc --arg text "$text" --arg tooltip "$tooltip" --arg ip "$ip_addr" \
+    '{text:$text, tooltip:$tooltip, class:"connected", alt:$ip}'
