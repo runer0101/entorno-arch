@@ -1,0 +1,102 @@
+#!/bin/bash
+# =============================================================
+# EwwControl — Manejo del daemon eww + toggle de widgets
+# Reemplaza el toggle manual de eww con un único punto de control
+# =============================================================
+
+EWW_BIN="eww"
+EWW_CONF="$HOME/.config/hypr/eww"
+EWW_PIDFILE="/tmp/eww-daemon.pid"
+
+notify() {
+    notify-send "eww" "$1" 2>/dev/null
+}
+
+is_running() {
+    pgrep -x eww >/dev/null 2>&1
+}
+
+start_daemon() {
+    if is_running; then
+        return 0
+    fi
+    WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-1}" \
+        setsid $EWW_BIN -c "$EWW_CONF" daemon >/dev/null 2>&1 < /dev/null &
+    disown 2>/dev/null
+    # Esperar a que esté listo
+    for i in 1 2 3 4 5 6 7 8 9 10; do
+        if $EWW_BIN -c "$EWW_CONF" ping >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 0.3
+    done
+    return 1
+}
+
+stop_daemon() {
+    $EWW_BIN -c "$EWW_CONF" kill 2>/dev/null
+    pkill -x eww 2>/dev/null
+    rm -f "$EWW_PIDFILE"
+}
+
+reload_daemon() {
+    $EWW_BIN -c "$EWW_CONF" reload 2>/dev/null
+}
+
+toggle_window() {
+    local win="$1"
+    start_daemon || { notify "eww daemon no arrancó"; return 1; }
+    $EWW_BIN -c "$EWW_CONF" open --toggle "$win"
+}
+
+close_window() {
+    local win="$1"
+    $EWW_BIN -c "$EWW_CONF" close "$win" 2>/dev/null
+}
+
+close_all() {
+    $EWW_BIN -c "$EWW_CONF" close-all 2>/dev/null
+}
+
+case "${1:-}" in
+    --toggle|open)
+        toggle_window "${2:-launchermenu}"
+        ;;
+    --close)
+        [ -n "${2:-}" ] && close_window "$2"
+        ;;
+    --close-all)
+        close_all
+        ;;
+    --daemon)
+        start_daemon
+        ;;
+    --stop)
+        stop_daemon
+        ;;
+    --reload)
+        reload_daemon
+        ;;
+    --status)
+        if is_running; then
+            $EWW_BIN -c "$EWW_CONF" list-windows 2>/dev/null
+        else
+            echo "eww daemon not running"
+        fi
+        ;;
+    --ping)
+        start_daemon
+        $EWW_BIN -c "$EWW_CONF" ping
+        ;;
+    *)
+        echo "Uso: EwwControl [opcion] [widget]"
+        echo "Opciones:"
+        echo "  --toggle WIN    Toggle widget (default: launchermenu)"
+        echo "  --close WIN     Cerrar widget"
+        echo "  --close-all     Cerrar todos"
+        echo "  --daemon        Iniciar daemon"
+        echo "  --stop          Detener daemon"
+        echo "  --reload        Recargar config"
+        echo "  --status        Listar ventanas activas"
+        ;;
+esac

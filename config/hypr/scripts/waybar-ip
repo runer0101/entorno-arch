@@ -1,0 +1,83 @@
+#!/bin/bash
+# Módulo waybar: IP principal en la barra + tooltip con TODAS las
+# interfaces activas y sus IPs (WiFi, red de VMs, VPN, docker...).
+iface=$(ip route show default 2>/dev/null | awk '{print $5; exit}')
+if [ -z "$iface" ]; then
+    jq -nc '{text:"<span color=\"#7dcfff\">󱖣 sin red</span>", tooltip:"Sin interfaz de red activa", class:""}'
+    exit 0
+fi
+ip_addr=$(ip -4 addr show dev "$iface" 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1 | head -1)
+[ -z "$ip_addr" ] && ip_addr="sin IP"
+
+text="<span font='JetBrainsMono Nerd Font' color='#7dcfff'>󰑩 ${ip_addr}</span>"
+
+# Etiqueta amigable según el tipo de interfaz
+label_for() {
+    case "$1" in
+        wl*)            echo "WiFi" ;;
+        en*|eth*)       echo "cable" ;;
+        virbr*|br*)     echo "red de VMs" ;;
+        tun*|tap*|wg*|proton*) echo "VPN" ;;
+        docker*)        echo "Docker" ;;
+        lo)             echo "loopback" ;;
+        *)              echo "otra" ;;
+    esac
+}
+
+gateway=$(ip route show default 2>/dev/null | awk '{print $3; exit}')
+dns=$(awk '/^nameserver/{printf sep"%s",$2; sep=" · "}' /etc/resolv.conf 2>/dev/null)
+
+# IP pública: cacheada 10 min para no consultar internet en cada refresco
+PUBIP_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/waybar-public-ip"
+pubip="consultando…"
+if [ -f "$PUBIP_CACHE" ] && [ $(( $(date +%s) - $(stat -c %Y "$PUBIP_CACHE") )) -lt 600 ]; then
+    pubip=$(cat "$PUBIP_CACHE")
+else
+    # .$$ en el temporal: con dos barras hay dos curl simultáneos y con nombre
+    # fijo se pisaban. Si curl falla, el && evita el mv; el .$$ se limpia solo
+    # en el siguiente arranque de sesión (van a /tmp del usuario, no molestan).
+    ( curl -4s --max-time 8 https://ifconfig.me > "$PUBIP_CACHE.$$" 2>/dev/null \
+      && mv -f "$PUBIP_CACHE.$$" "$PUBIP_CACHE" || rm -f "$PUBIP_CACHE.$$" ) &
+    [ -f "$PUBIP_CACHE" ] && pubip=$(cat "$PUBIP_CACHE")
+fi
+
+# Relleno por caracteres (no bytes): printf desalinea con ñ/tildes
+row() {
+    local pad=$((10 - ${#1})); [ "$pad" -lt 1 ] && pad=1
+    printf ' %s%*s%s' "$1" "$pad" '' "$2"
+}
+
+nl=$'\n'
+tooltip="<span foreground='#7dcfff'><b> Tus direcciones IP</b></span>${nl}"
+tooltip+="<span foreground='#565f89'>────────────────────────────</span>${nl}"
+tooltip+="$(row 'Tu IP' "${ip_addr}")${nl}"
+tooltip+="$(row 'Router' "${gateway:-N/D}")${nl}"
+tooltip+="$(row 'Pública' "${pubip:-N/D}")${nl}"
+tooltip+="$(row 'DNS' "${dns:-N/D}")"
+
+# Otras interfaces activas (VMs, VPN, docker...) — la principal ya salió arriba
+extra=""
+vpn_activa=0
+while read -r ifname ipcidr; do
+    [ "$ifname" = "lo" ] && continue
+    [ "$ifname" = "$iface" ] && continue
+    lbl=$(label_for "$ifname")
+    ipv4=${ipcidr%%/*}
+    col="#c0caf5"
+    case "$lbl" in
+        VPN) col="#9ece6a"; vpn_activa=1 ;;
+        "red de VMs") col="#bb9af7" ;;
+    esac
+    extra+="${nl}<span foreground='${col}'>$(row "$lbl" "$ipv4")</span>  <span foreground='#565f89'>${ifname}</span>"
+done < <(ip -4 -o addr show up 2>/dev/null | awk '{print $2, $4}')
+[ -n "$extra" ] && tooltip+="${nl}${extra}"
+
+tooltip+="${nl}<span foreground='#565f89'>────────────────────────────</span>${nl}"
+if [ "$vpn_activa" -eq 1 ]; then
+    tooltip+="<span foreground='#9ece6a'> 󰦝 VPN conectada</span>"
+else
+    tooltip+="<span foreground='#565f89'> 󰦞 Sin VPN activa</span>"
+fi
+tooltip="<span font_family='JetBrainsMono Nerd Font'>${tooltip}</span>"
+
+jq -nc --arg text "$text" --arg tooltip "$tooltip" '{text:$text, tooltip:$tooltip, class:""}'

@@ -1,0 +1,19 @@
+# Gestor de credenciales: usa 'gh auth' para GitHub.
+# Tras instalar en una maquina nueva, ejecuta:  gh auth login
+[credential]
+	helper =
+[credential "https://github.com"]
+	helper =
+	helper = !/usr/bin/gh auth git-credential
+[credential "https://gist.github.com"]
+	helper =
+	helper = !/usr/bin/gh auth git-credential
+
+# ---------------------------------------------------------------- identidad
+# Desactivado a proposito: es especifico de cada maquina.
+# Configura el tuyo una sola vez con:  git config --global user.name "Tu Nombre"
+#                                        git config --global user.email "tu@correo.com"
+;[user]
+;	useConfigOnly = true
+;	email = tu@correo.com
+;	name = Tu Nombre

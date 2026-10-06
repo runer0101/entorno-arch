@@ -1,0 +1,73 @@
+#!/bin/bash
+# =============================================================
+# Updates — Chequea updates oficiales + AUR, actualiza eww + waybar
+# Migrado: soporte para eww standalone (Hyprland) + waybar.
+# Flags:
+#   --check        Chequea una vez y actualiza
+#   --daemon       Loop infinito cada 15 min
+#   --print        Muestra updates en terminal
+#   --toggle       Toggle visibilidad del pacman widget
+# =============================================================
+
+UPDATE_FILE="${XDG_CACHE_HOME:-$HOME/.cache}/Updates.txt"
+EWW_BIN="eww"
+EWW_CONF="$HOME/.config/hypr/eww"
+
+check_updates() {
+    updates=$(checkupdates 2>/dev/null)
+    official=$(echo "$updates" | grep -c .)
+
+    aur_updates=$(paru -Qua 2>/dev/null)
+    aur=$(echo "$aur_updates" | grep -c .)
+
+    total=$((official + aur))
+    echo "$total" > "$UPDATE_FILE"
+    # Listas para el tooltip de waybar (waybar-updates)
+    echo "$updates"     | grep . > "${UPDATE_FILE%.txt}-official.txt"
+    echo "$aur_updates" | grep . > "${UPDATE_FILE%.txt}-aur.txt"
+
+    # Refrescar eww
+    if pgrep -x eww >/dev/null; then
+        $EWW_BIN -c "$EWW_CONF" poll UPDATES 2>/dev/null
+    fi
+
+    # waybar no necesita señal: el módulo custom/updates relee
+    # el cache solo (interval: 60). SIGUSR1 lo ocultaba/mostraba.
+}
+
+print_updates() {
+    check_updates
+    if [ "$total" -gt 0 ]; then
+        printf "\033[1;33mHay %s updates disponibles:\033[0m\n" "$total"
+        if [ -n "$updates" ]; then
+            printf "\n\033[1;34mOficiales:\033[0m\n"
+            echo "$updates"
+        fi
+        if [ -n "$aur_updates" ]; then
+            printf "\n\033[1;34mAUR:\033[0m\n"
+            echo "$aur_updates"
+        fi
+    else
+        printf "\033[1;32m¡Tu sistema ya está actualizado!\033[0m\n"
+    fi
+}
+
+daemon_loop() {
+    while true; do
+        check_updates
+        sleep 900  # 15 min
+    done
+}
+
+case "${1:-}" in
+    --check|--sync-polybar)
+        check_updates ;;
+    --daemon)
+        daemon_loop ;;
+    --print|--print-updates)
+        print_updates ;;
+    *)
+        echo "Uso: Updates [--check|--daemon|--print]"
+        exit 1
+        ;;
+esac

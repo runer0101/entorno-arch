@@ -1,0 +1,289 @@
+// =============================================================
+// waybar — parte COMÚN a las dos barras (una por monitor)
+//
+// El reparto de workspaces por pantalla vive en config.jsonc, que incluye
+// este archivo dos veces y sólo cambia "output" y "modules-center".
+// Aquí está todo lo demás: ajustes de la barra y definición de módulos.
+//
+// Colores dinámicos desde el wallpaper: ~/.cache/wal/colors-waybar.css
+// =============================================================
+
+{
+    "layer": "top",
+    "position": "top",
+    "height": 48,
+    "margin-top": 6,
+    "margin-left": 12,
+    "margin-right": 12,
+    "spacing": 4,
+    "reload_style_on_change": true,
+
+    "modules-left": [
+        "custom/launcher",
+        "custom/disk",
+        "custom/cpu_bar",
+        "custom/gpu",
+        "custom/memory_bar",
+        "custom/ip_address",
+        "custom/htb"
+    ],
+    "modules-right": [
+        "custom/temp",
+        "custom/battery",
+        "custom/network",
+        "custom/updates",
+        "custom/notification",
+        "custom/clock",
+        "custom/power"
+    ],
+
+    // ── Launcher ──
+    "custom/launcher": {
+        "format": "<span size='large'>󰣇</span>",
+        // Interruptor: si el menu ya esta abierto, este clic lo cierra
+        "on-click": "__HOME__/.config/hypr/scripts/menu-apps.sh",
+        "on-click-right": "OpenApps --rice",
+        "tooltip": false
+    },
+
+    // ── Disco (almacenamiento) ──
+    "custom/disk": {
+        "exec": "waybar-disk",
+        "interval": 30,
+        "return-type": "json",
+        "format": "{}",
+        "markup": "pango",
+        "on-click": "OpenApps --yazi",
+        "tooltip": true
+    },
+
+    // ── CPU ──
+    "custom/cpu_bar": {
+        "exec": "waybar-cpu",
+        "interval": 5,
+        "return-type": "json",
+        "format": "{}",
+        "markup": "pango",
+        "tooltip": true
+    },
+
+    // ── GPU (NVIDIA/AMD) ──
+    "custom/gpu": {
+        "exec": "waybar-gpu",
+        // 10 y no 3: cada pasada invoca nvidia-smi, que despierta la dGPU e
+        // impide que entre en D3cold. A 3 s (x2 barras) no dormía nunca.
+        "interval": 10,
+        "return-type": "json",
+        "format": "{}",
+        "markup": "pango",
+        "tooltip": true
+    },
+
+    // ── RAM ──
+    "custom/memory_bar": {
+        "exec": "waybar-ram",
+        "interval": 5,
+        "return-type": "json",
+        "format": "{}",
+        "markup": "pango",
+        "tooltip": true
+    },
+
+    // ── IP ──
+    "custom/ip_address": {
+        "exec": "waybar-ip",
+        "interval": 5,
+        "return-type": "json",
+        "format": "{}",
+        "markup": "pango",
+        // Click directo al NetManagerDM completo (antes abría un popup
+        // resumen con IP/ping/señal y "abrir gestor de redes" como última
+        // tarjeta; ahora se salta ese paso y va directo al gestor).
+        "on-click": "OpenApps --netmanager",
+        "tooltip": true
+    },
+
+    // ── HTB (solo visible con la VPN conectada; el script emite sus llaves) ──
+    "custom/htb": {
+        "exec": "waybar-htb",
+        "interval": 5,
+        "return-type": "json",
+        "format": "{}",
+        "markup": "pango",
+        "on-click": "htb-copy-ip",
+        "tooltip": true
+    },
+
+    // ── Temp ──
+    "custom/temp": {
+        "exec": "waybar-temp",
+        "interval": 10,
+        "return-type": "json",
+        "format": "{}",
+        "markup": "pango",
+        // Popup estilo wlogout con temperaturas + control de ventiladores.
+        // Incluye modo hp-wmi (auto/manual/off) y NBFC si el daemon está
+        // activo. Si NBFC no está listo, el bloque NBFC se omite solo.
+        "on-click": "temp-popup",
+        "tooltip": true
+    },
+
+    // ── Battery ──
+    "custom/battery": {
+        "exec": "waybar-battery",
+        "interval": 10,
+        "return-type": "json",
+        "format": "{}",
+        "markup": "pango",
+        "tooltip": true
+    },
+
+    // ── Network ──
+    "custom/network": {
+        "exec": "waybar-network",
+        "interval": 5,
+        "return-type": "json",
+        "format": "{}",
+        "markup": "pango",
+        // Click directo al NetManagerDM, igual que el botón de IP de la
+        // izquierda (custom/ip_address). Cada botón sigue mostrando info
+        // acorde (IP vs velocidad) pero ambos abren el mismo gestor.
+        "on-click": "OpenApps --netmanager",
+        "tooltip": true
+    },
+
+    // ── Updates (pacman icon + count) ──
+    "custom/updates": {
+        "exec": "waybar-updates",
+        "interval": 60,
+        "return-type": "json",
+        "format": "{}",
+        "markup": "pango",
+        // Popup estilo wlogout: 2 tarjetas (Actualizar / Salir).
+        // El menú clásico (pill) sigue en updates-menu.sh.
+        "on-click": "updates-popup",
+        "tooltip": true
+    },
+
+    // ── Notificaciones (swaync; se oculta solo si no está instalado) ──
+    //    Además concentra: rueda = volumen (mismo OSD que Fn+F6/F7),
+    //    click medio = Bluetooth, click derecho = no molestar.
+    "custom/notification": {
+        "tooltip": false,
+        "format": "{}",
+        // El icono (󰗃 normal · 󰂛 en silencio) y el color los decide el script
+        // + el CSS. Usamos script propio en vez de `swaync-client -swb` porque
+        // aquel no informa si el panel está abierto; ver waybar-swaync.sh.
+        "return-type": "json",
+        "exec-if": "which swaync-client",
+        "exec": "__HOME__/scripts/waybar-swaync.sh",
+        "on-click": "swaync-client -t -sw",
+        "on-click-right": "swaync-client -d -sw",
+        "on-click-middle": "OpenApps --bluetooth",
+        "on-click-backward": "swayosd-client --output-volume mute-toggle",
+        "on-click-forward": "swayosd-client --output-volume mute-toggle",
+        "on-scroll-up": "swayosd-client --output-volume raise",
+        "on-scroll-down": "swayosd-client --output-volume lower",
+        "escape": true
+    },
+
+    // ── Clock: hora por defecto, click → toggle a fecha (es, vía script) ──
+    "custom/clock": {
+        "exec": "clock-es json",
+        "interval": 1,
+        "return-type": "json",
+        "format": "{}",
+        "markup": "pango",
+        "on-click": "clock-es toggle"
+    },
+
+    // ── Power: wlogout si está instalado, si no el powermenu de siempre ──
+    "custom/power": {
+        "format": "⏻",
+        "on-click": "sh -c 'command -v wlogout >/dev/null && wlogout -b 5 -c 0 -p layer-shell || OpenApps --powermenu'",
+        "tooltip": true,
+        "tooltip-format": "Menú de energía: bloquear / reiniciar / apagar / cerrar sesión"
+    },
+
+    // =========================================================
+    //  WORKSPACES — pacman / fantasma / bolita, y CLICKEABLES
+    //
+    //  Un módulo por workspace en vez del módulo hyprland/workspaces. Motivo:
+    //  hyprland/workspaces salta de workspace mandando el dispatch legacy
+    //  "dispatch workspace N" por el socket IPC de Hyprland. Desde que la config
+    //  es Lua (Hyprland 0.56) ese IPC envuelve lo que recibe en
+    //  `return hl.dispatch(...)`, así que le llega `hl.dispatch(workspace 3)` y
+    //  muere con error de sintaxis Lua — el clic no hacía nada. Comprobable:
+    //      hyprctl dispatch workspace 3                       → error: ')' expected near '3'
+    //      hyprctl dispatch 'hl.dsp.focus({ workspace = 3 })'  → ok
+    //  Por eso el on-click de aquí usa la sintaxis Lua nueva.
+    //
+    //  ext/workspaces también clickea bien (activa por el protocolo Wayland
+    //  ext-workspace-v1, sin pasar por el IPC) pero ese protocolo sólo informa
+    //  active/urgent/hidden: no sabe si un workspace tiene ventanas y se perdía
+    //  la bolita morada de "vacío". Aquí el icono lo decide waybar-ws.
+    //
+    //  El repintado al vuelo lo dispara waybar-ws-listener con SIGRTMIN+8 (oye el
+    //  socket2 de Hyprland; se lanza desde hyprland.lua). El "interval" es solo
+    //  la red de seguridad por si ese proceso falta.
+    //
+    //  Es 5 y no algo más relajado porque, con dos monitores, quedarse sin
+    //  refresco no da "un poco de retraso" sino un estado VISIBLEMENTE MALO: cada
+    //  barra recalcula por su cuenta, así que mientras una ya movió el pacman y la
+    //  otra no, se ven DOS pacman a la vez (pasó el 1 ago 2026 al quedarse el
+    //  listener sin arrancar). Con 5 s ese hueco es corto. El coste es asumible:
+    //  10 lecturas cada 5 s, y waybar-ws resuelve cada una con una sola llamada a
+    //  hyprctl. Si molestara, la respuesta NO es subir el interval sino asegurar
+    //  el listener, que deja el repintado en instantáneo.
+    // =========================================================
+    "custom/ws1": {
+        "exec": "waybar-ws 1", "return-type": "json", "interval": 5, "signal": 8,
+        "format": "{}", "markup": "pango", "tooltip": true,
+        "on-click": "hyprctl dispatch 'hl.dsp.focus({ workspace = 1 })'"
+    },
+    "custom/ws2": {
+        "exec": "waybar-ws 2", "return-type": "json", "interval": 5, "signal": 8,
+        "format": "{}", "markup": "pango", "tooltip": true,
+        "on-click": "hyprctl dispatch 'hl.dsp.focus({ workspace = 2 })'"
+    },
+    "custom/ws3": {
+        "exec": "waybar-ws 3", "return-type": "json", "interval": 5, "signal": 8,
+        "format": "{}", "markup": "pango", "tooltip": true,
+        "on-click": "hyprctl dispatch 'hl.dsp.focus({ workspace = 3 })'"
+    },
+    "custom/ws4": {
+        "exec": "waybar-ws 4", "return-type": "json", "interval": 5, "signal": 8,
+        "format": "{}", "markup": "pango", "tooltip": true,
+        "on-click": "hyprctl dispatch 'hl.dsp.focus({ workspace = 4 })'"
+    },
+    "custom/ws5": {
+        "exec": "waybar-ws 5", "return-type": "json", "interval": 5, "signal": 8,
+        "format": "{}", "markup": "pango", "tooltip": true,
+        "on-click": "hyprctl dispatch 'hl.dsp.focus({ workspace = 5 })'"
+    },
+    "custom/ws6": {
+        "exec": "waybar-ws 6", "return-type": "json", "interval": 5, "signal": 8,
+        "format": "{}", "markup": "pango", "tooltip": true,
+        "on-click": "hyprctl dispatch 'hl.dsp.focus({ workspace = 6 })'"
+    },
+    "custom/ws7": {
+        "exec": "waybar-ws 7", "return-type": "json", "interval": 5, "signal": 8,
+        "format": "{}", "markup": "pango", "tooltip": true,
+        "on-click": "hyprctl dispatch 'hl.dsp.focus({ workspace = 7 })'"
+    },
+    "custom/ws8": {
+        "exec": "waybar-ws 8", "return-type": "json", "interval": 5, "signal": 8,
+        "format": "{}", "markup": "pango", "tooltip": true,
+        "on-click": "hyprctl dispatch 'hl.dsp.focus({ workspace = 8 })'"
+    },
+    "custom/ws9": {
+        "exec": "waybar-ws 9", "return-type": "json", "interval": 5, "signal": 8,
+        "format": "{}", "markup": "pango", "tooltip": true,
+        "on-click": "hyprctl dispatch 'hl.dsp.focus({ workspace = 9 })'"
+    },
+    "custom/ws10": {
+        "exec": "waybar-ws 10", "return-type": "json", "interval": 5, "signal": 8,
+        "format": "{}", "markup": "pango", "tooltip": true,
+        "on-click": "hyprctl dispatch 'hl.dsp.focus({ workspace = 10 })'"
+    }
+}

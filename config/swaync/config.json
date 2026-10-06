@@ -1,0 +1,101 @@
+{
+  "transition-time": 200,
+  "timeout": 8,
+  "timeout-low": 4,
+  "timeout-critical": 20,
+  "hide-on-clear": false,
+  "hide-on-action": true,
+  "$schema": "/etc/xdg/swaync/configSchema.json",
+  "positionX": "right",
+  "positionY": "bottom",
+  "control-center-margin-top": 100,
+  "control-center-margin-bottom": 5,
+  "control-center-margin-right": 15,
+  "control-center-width": 360,
+  "control-center-height": 0,
+  "layer": "overlay",
+  "cssPriority": "user",
+  "widgets": [
+    "backlight",
+    "volume",
+    "buttons-grid",
+    "mpris",
+    "dnd",
+    "title",
+    "notifications"
+  ],
+  "widget-config": {
+    "notifications": {},
+    "backlight": {
+      "label": "󰃟",
+      "device": "amdgpu_bl2",
+      "subsystem": "backlight",
+      "min": 5
+    },
+    "volume": {
+      "label": "󰕾",
+      "show-per-app": true,
+      "show-per-app-icon": true,
+      "show-per-app-label": false,
+      "expand-per-app": false,
+      "expand-button-label": "󰅀",
+      "collapse-button-label": "󰅃",
+      "empty-list-label": "Nada reproduciendo audio",
+      "animation-type": "slide_down",
+      "animation-duration": 200
+    },
+    "title": {
+      "text": "󰆴 Notifications",
+      "clear-all-button": true,
+      "button-text": "󰆴"
+    },
+    "dnd": {
+      "text": "Do Not Disturb ✖"
+    },
+    "mpris": {
+      "image-size": 40,
+      "image-radius": 8,
+      "max-visible": 1,
+      "ignore-player": [
+        "helium-browser",
+        "Helium",
+        "chromium"
+      ]
+    },
+    "buttons-grid": {
+      "buttons-per-row": 4,
+      "actions": [
+        {
+          "label": "",
+          "type": "toggle",
+          "command": "__HOME__/scripts/bt-toggle.sh",
+          "update-command": "sh -c 'bluetoothctl show 2>/dev/null | grep Powered | grep -q yes && echo true || echo false'"
+        },
+        {
+          "label": "",
+          "type": "toggle",
+          "command": "sh -c '[ \"$SWAYNC_TOGGLE_STATE\" = true ] && nmcli radio wifi on || nmcli radio wifi off'",
+          "update-command": "sh -c 'nmcli radio wifi | grep -q enabled && echo true || echo false'"
+        },
+        {
+          "label": "",
+          "type": "toggle",
+          "command": "sh -c '[ \"$SWAYNC_TOGGLE_STATE\" = true ] && wpctl set-mute @DEFAULT_AUDIO_SINK@ 0 || wpctl set-mute @DEFAULT_AUDIO_SINK@ 1'",
+          "update-command": "sh -c 'wpctl get-volume @DEFAULT_AUDIO_SINK@ | grep -q MUTED && echo false || echo true'"
+        },
+        {
+          "label": "󰌾",
+          "command": "hyprlock"
+        },
+        {
+          "label": "󰍃",
+          "command": "hyprctl dispatch exit"
+        },
+        {
+          "label": "󰐥",
+          "command": "wlogout -b 5 -c 0 -p layer-shell"
+        }
+      ]
+    }
+  }
+}

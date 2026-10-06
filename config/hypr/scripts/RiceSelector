@@ -1,0 +1,48 @@
+#!/bin/bash
+# =============================================================
+#  RiceSelector — Selector de rice (Wayland/Hyprland)
+#  Migrado: usa wofi en vez de rofi, llama a soft-reload HPL.
+# =============================================================
+
+WOFI_STYLE="$HOME/.config/wofi/style.css"
+
+RICES_DIR="$HOME/.config/hypr/rices"
+RICE_FILE="$HOME/.config/hypr/.rice"
+HYPR_SCRIPTS="$HOME/.config/hypr/scripts"
+
+notify() {
+    notify-send "Rice" "$1" 2>/dev/null
+}
+
+list_rice() {
+    find "$RICES_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort
+}
+
+# Listado wofi marcando el actual
+list=$(list_rice | while read -r r; do
+    [ "$r" = "$(cat "$RICE_FILE" 2>/dev/null)" ] && prefix=" * " || prefix="   "
+    printf "%s%s\n" "$prefix" "$r"
+done)
+
+selected=$(printf "%s\n   ✖  Salir del menú\n" "$list" \
+    | wofi --dmenu --prompt "Select rice" --style "$WOFI_STYLE" 2>/dev/null)
+[ -n "$selected" ] || exit 0
+case "$selected" in *"Salir"*) exit 0 ;; esac
+
+new_rice=$(printf "%s" "$selected" | sed 's/^[* ]*//')
+[ -d "$RICES_DIR/$new_rice" ] || { notify "Rice $new_rice not found"; exit 1; }
+
+# Guardar selección
+echo "$new_rice" > "$RICE_FILE"
+notify "Rice: $new_rice — reloading..."
+
+# Reaplicar wallpaper + tema + recargar HPL
+[ -x "$HYPR_SCRIPTS/wallpaper.sh" ] && "$HYPR_SCRIPTS/wallpaper.sh" >/dev/null 2>&1 &
+[ -x "$HYPR_SCRIPTS/apply-gtk.sh" ] && "$HYPR_SCRIPTS/apply-gtk.sh" >/dev/null 2>&1 &
+
+# Reload waybar + mako + hyprland
+sleep 0.5
+hyprctl reload >/dev/null 2>&1
+pkill -SIGUSR2 waybar 2>/dev/null
+makoctl reload 2>/dev/null
+notify "Rice $new_rice loaded"

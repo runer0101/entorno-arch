@@ -1,0 +1,39 @@
+# Nunca versionar secretos
+*.env
+secrets.*
+!secrets.example
+*.key
+*.pem
+id_rsa*
+id_ed25519*
+.netrc
+.npmrc
+*.p12
+*.keystore
+
+# Backups y temporales
+*.bak
+*.bak-*
+*.backup*
+*.old
+*.orig
+*~
+*.swp
+*.swo
+
+# Basura de editors y SO
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Caches y artefactos de build
+__pycache__/
+*.pyc
+node_modules/
+.cache/
+*.log
+
+# NOTA: config/ es una copia material de ~/.config, no un repo anidado.
+# Si alguna app crea su propio .git dentro, se ignora.
+**/.git/

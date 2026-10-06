@@ -1,0 +1,51 @@
+#!/bin/bash
+# =============================================================
+#  OpenApps — Dispatcher de apps para Hyprland
+#  Migrado desde bspwm: ahora invoca scripts compatibles con
+#  Wayland (wofi, hyprctl, grim+slurp, wl-copy, swaylock).
+#  Mantiene los mismos flags para no romper keybindings.
+# =============================================================
+
+WIDGET_DIR="$HOME/.config/hypr/eww"
+
+case "$1" in
+    --menu)         "$HOME/.config/hypr/scripts/menu-apps.sh" ;;
+    --rice)         RiceSelector ;;
+    --riceedit)     RiceEditor ;;
+    --wallpaper)    WallSelect ;;
+    --terminal)     Term --terminal ;;
+    --floating)     Term --floating ;;
+    --update)       Term --update ;;
+    --checkupdates) Term --checkupdates ;;
+    --netmanager)   NetManagerDM ;;
+    --pass)         RofiPass ;;
+    --bluetooth)    BluetoothDM ;;
+    --clipboard)    clipcat-menu ;;
+    --screenshot)   ScreenShoTer ;;
+    --powermenu)    PowerMenu ;;
+    --android)      AndroidMount ;;
+    --keyboard)     KeyBoardL ;;
+    --yazi)         Term --yazi ;;
+    --nvim)         Term --nvim ;;
+    --music)        Term --music ;;
+    --fetch)        Term --fetch ;;
+    --scratch)      "$HOME/.config/hypr/scripts/scratchpad.sh" ;;
+
+    # Apps
+    --filemanager)  thunar ;;
+    --browser)      firefox ;;
+    --editor)       geany ;;
+    --telegram)     telegram-desktop ;;
+    --whats)        firefox -new-tab https://web.whatsapp.com/ ;;
+    --soundcontrol) pavucontrol ;;
+
+    # Eww widgets (migrados a Wayland vía eww 0.6.0 + wlr-layer-shell)
+    --KeyHelp)      EwwControl --toggle csheet ;;
+    --usercard)     EwwControl --toggle launchermenu ;;
+    --player)       EwwControl --toggle music ;;
+
+    *)
+        echo "Uso: OpenApps [opcion]"
+        echo "Opciones: --menu --rice --terminal --browser --filemanager --netmanager --pass --powermenu --screenshot ..."
+        ;;
+esac

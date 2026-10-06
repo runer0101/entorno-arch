@@ -1,0 +1,239 @@
+/* =============================================================
+   waybar — estilo By-LeyzS adaptado
+   Barra flotante transparente, módulos "píldora" con borde de
+   acento y colores dinámicos de pywal (se regeneran con cada
+   cambio de wallpaper: ~/.cache/wal/colors-waybar.css)
+   ============================================================= */
+
+@import "__HOME__/.cache/wal/colors-waybar.css";
+
+* {
+    font-family: "JetBrainsMono Nerd Font", "Material Design Icons Desktop", "Font Awesome 6 Free", monospace;
+    font-size: 16px;
+    font-weight: bold;
+    border: none;
+    margin: 0;
+    padding: 0;
+    min-height: 0;
+}
+
+/* ─── Barra: totalmente transparente (efecto flotante) ─── */
+window#waybar {
+    background: transparent;
+}
+
+/* ─── Tooltip (conserva el detalle enriquecido de los scripts) ─── */
+tooltip {
+    background: alpha(@background, 0.96);
+    border: 2px solid @color9;
+    border-radius: 12px;
+    color: @foreground;
+    font-size: 12px;
+    padding: 8px 12px;
+}
+tooltip label {
+    color: @foreground;
+    padding: 2px 4px;
+}
+
+/* ─── Workspaces: pacman/fantasmas/bolitas en píldoras ───
+   Ahora son módulos custom (uno por workspace, #custom-ws1 … #custom-ws10)
+   en vez del módulo hyprland/workspaces, para que el clic funcione con la
+   config Lua de Hyprland — ver el bloque WORKSPACES de common.jsonc.
+   Las reglas de #workspaces button se dejan por si se vuelve atrás. */
+#custom-ws1, #custom-ws2, #custom-ws3, #custom-ws4, #custom-ws5,
+#custom-ws6, #custom-ws7, #custom-ws8, #custom-ws9, #custom-ws10,
+#workspaces button {
+    background-color: @background;
+    color: @foreground;
+    border-radius: 17px;
+    margin: 5px 3px;
+    padding: 0px 10px;
+    min-height: 26px;
+    font-size: 16px;
+    font-weight: 800;
+    border: 2px solid @color9;
+    box-shadow: none;
+    outline: none;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+#workspaces button.active {
+    background-color: @background;
+    color: @foreground;
+    border: 2px solid @color9;
+    box-shadow: none;
+    outline: none;
+}
+
+/* Hover en workspaces: misma luz teal que el resto de las píldoras */
+#custom-ws1:hover, #custom-ws2:hover, #custom-ws3:hover, #custom-ws4:hover,
+#custom-ws5:hover, #custom-ws6:hover, #custom-ws7:hover, #custom-ws8:hover,
+#custom-ws9:hover, #custom-ws10:hover,
+#workspaces button:hover,
+#workspaces button.active:hover {
+    background-color: @color9;
+    color: @background;
+    border: 2px solid @color9;
+    box-shadow: none;
+    text-shadow: none;
+}
+
+/* ─── Módulos píldora ─── */
+#custom-launcher,
+#custom-disk,
+#custom-cpu_bar,
+#custom-gpu,
+#custom-memory_bar,
+#custom-ip_address,
+#custom-htb,
+#custom-temp,
+#custom-battery,
+#custom-network,
+#custom-updates,
+#custom-notification,
+#custom-clock {
+    background-color: @background;
+    color: @foreground;
+    border-radius: 17px;
+    padding: 0px 12px;
+    margin: 5px 2px;
+    border: 2px solid @color9;
+    transition: all 0.3s ease;
+}
+
+/* ─── Launcher: círculo de acento ─── */
+#custom-launcher {
+    color: @color9;
+    /* Círculo: ancho ≈ alto y radio 50%. Padding horizontal reducido para que
+       no salga ovalado; el espacio fino U+200A del format centra el glifo. */
+    border-radius: 50%;
+    margin: 3px 3px;
+    min-width: 34px;
+    /* padding horizontal total = 4px (mantiene el círculo 41x41), pero todo a
+       la derecha para correr el glifo 2px a la izquierda y centrarlo de verdad. */
+    padding: 0px 4px 0px 0px;
+    font-size: 23px;
+}
+#custom-launcher:hover {
+    background-color: @color9;
+    color: @background;
+}
+
+/* ─── Notificaciones ─── */
+#custom-notification {
+    /* Píldora: más ancho que alto y extremos totalmente redondeados. */
+    padding: 0px 18px;
+    border-radius: 100px;
+}
+
+/* ─── Power: círculo de acento ─── */
+#custom-power {
+    background-color: @background;
+    color: @color9;
+    border: 2px solid @color9;
+    border-radius: 50%;
+    /* círculo; el glifo ⏻ carga a la derecha: compensado con padding */
+    min-width: 33px;
+    font-size: 18px;
+    margin: 3px 8px 3px 2px;
+    padding: 0px 4px 0px 0px;
+    transition: all 0.3s ease;
+}
+#custom-power:hover {
+    background-color: @color9;
+    color: @background;
+    border: 2px solid @background;
+}
+
+/* ─── Hover interactivo ─── */
+#custom-disk:hover,
+#custom-cpu_bar:hover,
+#custom-gpu:hover,
+#custom-memory_bar:hover,
+#custom-ip_address:hover,
+#custom-htb:hover,
+#custom-temp:hover,
+#custom-battery:hover,
+#custom-network:hover,
+#custom-updates:hover,
+#custom-notification:hover,
+#custom-clock:hover {
+    background-color: @color9;
+    color: @background;
+}
+
+/* ─── Notificaciones: estados ───
+   Todo este bloque va DESPUÉS del :hover general para ganar el empate de
+   especificidad (id+clase e id+pseudoclase pesan igual: manda el último).
+   Clases emitidas por ~/scripts/waybar-swaync.sh */
+
+/* Rojo permanente: el glifo 󰗃 es el logo de YouTube en Nerd Fonts, así que
+   el rojo de marca (#ff0000) es su color natural. */
+#custom-notification.none,
+#custom-notification.notification {
+    color: #ff0000;
+}
+
+/* Panel abierto: el icono pasa a blanco y el borde lo acompaña, para que se
+   vea que las opciones están desplegadas. */
+#custom-notification.cc-open {
+    color: #ffffff;
+    border-color: #ffffff;
+    background-color: @background;
+}
+
+/* Hover: la píldora se rellena de acento como el resto de la barra. El icono
+   va en blanco, no en rojo — el rojo sobre el teal @color9 pierde contraste,
+   y de paso anticipa el blanco del clic. */
+#custom-notification.none:hover,
+#custom-notification.notification:hover,
+#custom-notification.cc-open:hover {
+    background-color: @color9;
+    color: #ffffff;
+    border-color: @color9;
+}
+
+/* Modo silencio (DND): píldora rellena en @color8, el gris cálido de la
+   paleta. Se distingue del acento teal del hover y del rojo normal. */
+#custom-notification.dnd {
+    background-color: @color8;
+    border-color: @color8;
+    color: @background;
+}
+
+#custom-notification.dnd:hover {
+    background-color: alpha(@color8, 0.75);
+    border-color: @color8;
+    color: @background;
+}
+
+/* swaync caído: icono y borde apagados. No es un estado que debas ver — si se
+   queda así, systemd no consiguió revivirlo (systemctl --user status swaync). */
+#custom-notification.dead {
+    color: alpha(@foreground, 0.35);
+    border-color: alpha(@foreground, 0.25);
+}
+
+#custom-notification.dead:hover {
+    background-color: alpha(@foreground, 0.15);
+    border-color: alpha(@foreground, 0.25);
+    color: alpha(@foreground, 0.5);
+}
+
+/* ─── HTB: cubo oficial (imagen) a la izquierda + IP en verde ─── */
+#custom-htb {
+    /* 12px normales de la píldora + hueco a la izquierda para el cubo */
+    padding: 0px 12px 0px 30px;
+    background-image: url("__HOME__/.config/waybar/htb-cube.png");
+    background-repeat: no-repeat;
+    background-position: 9px center;
+    background-size: 16px 16px;
+}
+/* En hover NO invertimos a verde: si no, el cubo verde se perdería sobre
+   el fondo verde. Mantenemos fondo oscuro y solo resaltamos el borde. */
+#custom-htb:hover {
+    background-color: @background;
+    color: @foreground;
+    border: 2px solid @foreground;
+}

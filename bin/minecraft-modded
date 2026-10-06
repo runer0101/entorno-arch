@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# minecraft-modded — same as minecraft but with more RAM for modpacks
+set -euo pipefail
+exec env MC_RAM="${MC_RAM:-4G}" "$(dirname "$0")/minecraft" "$@"

@@ -1,0 +1,338 @@
+#!/bin/bash
+BAT=$(ls -d /sys/class/power_supply/BAT* 2>/dev/null | head -1)
+if [ -z "$BAT" ]; then
+    jq -nc '{text:"<span color=\"#9ece6a\">󰚥 sin batería</span>", tooltip:"Equipo sin batería", class:""}'
+    exit 0
+fi
+# Lo que dice el firmware. Puede venir VACÍO: en esta BAT0 el kernel dejó de
+# exponer capacity, energy_full y energy_full_design (comprobado el 31 jul 2026;
+# quedan solo energy_now, voltage_now y voltage_min_design). upower confirma que
+# no es cosa del script: reporta "percentage: 0%" y "energy-full: 0 Wh". Antes se
+# ponía 0 aquí y el tooltip acababa enseñando "el firmware dice 0%", que parecía
+# una lectura real cuando en realidad no hay lectura ninguna.
+cap_fw=$(cat "$BAT/capacity" 2>/dev/null)
+status=$(cat "$BAT/status" 2>/dev/null || echo Unknown)
+ac_online=$(cat /sys/class/power_supply/ACAD/online 2>/dev/null || echo 0)
+v_now=$(cat "$BAT/voltage_now" 2>/dev/null || echo 0)
+
+# ══ Porcentaje por voltaje ═══════════════════════════════════════════════
+# El gauge de esta BAT0 no sirve: declara "Full" a 3,8 V/celda y ha llegado a
+# reportar 46 Wh de carga en 12 min (232 W, imposible). El voltaje en cambio es
+# una medida directa, así que el % se calcula a partir de él.
+#
+# La curva NO es genérica: está sacada de las 26 descargas reales que upower
+# tenía registradas (~136k muestras, jun-jul 2026), anclando cada muestra a los
+# minutos que faltaron para llegar a 2,85 V/celda. De ahí salen los 175 min de
+# autonomía a pleno y la tabla de abajo. Rehacer con
+# ~/scripts/bateria-curva.py (necesita los .dat de /var/lib/upower) si cambia el pack.
+CELDAS=4
+PLENO_MIN=175
+CURVA_V="2.80 2.85 2.90 2.95 3.00 3.05 3.10 3.15 3.20 3.25 3.30 3.35 3.40 3.45 3.50 3.55 3.60 3.65 3.70 3.75 3.80 3.85 3.90 3.95 4.00 4.05 4.10 4.15 4.20"
+CURVA_P="1    1    2    2    2    3    3    4    5    6    8    11   16   17   22   33   37   39   56   66   67   80   85   86   87   94   98   100  100"
+
+# La curva está medida BAJO CARGA (descargando). Con el cargador puesto el
+# voltaje está inflado, así que hay que restarle el salto que se observa al
+# desenchufar.
+#
+# El offset de reposo sobre el cargador era 0,30 y estaba mal: se remidió el
+# 31 jul 2026 sobre los 7 desenchufes que hay en ~/.local/state/bateria.log
+# (29-31 jul), comparando la mediana de vcell de los 2 min antes con la de los
+# 2 min después. Salió mediana 0,228 (rango 0,15-0,28), no 0,30. El exceso de
+# 0,07 V/celda se comía justo el tramo final de la curva: con el pack lleno de
+# verdad (4,383 V/celda en reposo sobre el cargador) daba 4,083 -> 95%, y la
+# barra NUNCA llegaba al 100%. Con 0,23 da 4,153, que ya cae en el 100%.
+#
+# La decisión va por ACAD/online, NO por $status: al enchufar y desenchufar el
+# status va y viene entre Full y Discharging durante ~1 min (visto el 29 jul),
+# y como el offset cuelga de él, cada oscilación movía el porcentaje. ACAD es
+# un sí/no limpio.
+if [ "$ac_online" = "1" ]; then
+    [ "$status" = "Charging" ] && offset=0.45 || offset=0.23
+else
+    offset=0
+fi
+
+vcell=$(awk -v v="$v_now" -v n="$CELDAS" 'BEGIN{printf "%.3f", v/1e6/n}')
+vadj=$(awk -v v="$vcell" -v o="$offset" 'BEGIN{printf "%.3f", v-o}')
+
+# Suavizado: el voltaje instantáneo oscila varias centésimas con los picos de
+# CPU/GPU, y sin filtrar el % bailaría en cada refresco. Mediana de las últimas
+# muestras de los últimos 5 min. Ojo: waybar ejecuta cada módulo una vez POR
+# BARRA, así que a este fichero le entran ~2 muestras por intervalo; da igual
+# para una mediana, pero por eso el ring es de 40 y no de 20.
+ring="${XDG_CACHE_HOME:-$HOME/.cache}/waybar-battery-vring"
+now=$(date +%s)
+if [ "$v_now" -gt 0 ] 2>/dev/null; then
+    # Campos 4 y 5 (vcell crudo y ac) los añadió el detector de "tope de carga"
+    # de más abajo, que necesita mirar si el voltaje se SOSTUVO alto. Las líneas
+    # viejas sin esos campos no rompen nada: el suavizado solo usa 1 y 2, y el
+    # detector las cuenta como "no cumple" y se queda corto, que es el lado
+    # seguro.
+    printf '%s %s %s %s %s\n' "$now" "$vadj" "$status" "$vcell" "$ac_online" >> "$ring"
+    tail -n 40 "$ring" > "$ring.tmp" 2>/dev/null && mv "$ring.tmp" "$ring"
+fi
+# Se promedian TODAS las muestras de la ventana, sin filtrar por estado: lo que
+# se guarda es el voltaje ya corregido por el offset, así que las de enchufado y
+# las de batería son directamente comparables. Filtrarlas por estado vaciaba la
+# ventana justo al desenchufar -> se mostraba el voltaje crudo y el número
+# pegaba un salto, que es lo que se veía el 29 jul.
+#
+# Ventana de 5 min (antes 3): al desenchufar el 29 jul, voltage_now salta
+# ±150-200 mV entre lecturas de 10 s AUN dentro del mismo estado (no es la
+# transición Full→Discharging, ya filtrada por offset; es ruido real del EC de
+# esta placa). En el tramo 3,50-3,60 V/celda la curva es muy empinada (22%→37%
+# en 100 mV), así que ese ruido solo se ve pequeño con más muestras detrás.
+# En batería se usa SOLO el voltaje crudo ($4) de muestras tomadas en batería
+# ($5==0). Antes se mezclaba todo el vadj y pasaba esto: cargando, el cargador
+# clava ~4,37 V/celda en fase CV, vadj quedaba en ~3,91 (85% ficticio con el
+# pack al 25%), esas muestras llenaban la ventana y al desenchufar la barra
+# caía arrastrándose desde un 85-100% falso al 30-40% real. Con el filtro,
+# la meseta CV de la carga nunca toca la estimación de descarga. El $4>2
+# descarta líneas viejas de 3 campos (anteriores a los campos 4/5), donde
+# awk leería un 0 fantasma.
+if [ "$ac_online" = "1" ]; then
+    vsmooth=$(awk -v now="$now" '
+        $1 > now-300 { a[n++] = $2 }
+        END {
+            if (n == 0) exit 1
+            for (i = 0; i < n; i++) for (j = i+1; j < n; j++)
+                if (a[j] < a[i]) { t = a[i]; a[i] = a[j]; a[j] = t }
+            printf "%.3f", (n % 2) ? a[int(n/2)] : (a[n/2-1] + a[n/2]) / 2
+        }' "$ring" 2>/dev/null) || vsmooth=$vadj
+else
+    vsmooth=$(awk -v now="$now" '
+        $1 > now-300 && $5 == 0 && $4 > 2 { a[n++] = $4 }
+        END {
+            if (n == 0) exit 1
+            for (i = 0; i < n; i++) for (j = i+1; j < n; j++)
+                if (a[j] < a[i]) { t = a[i]; a[i] = a[j]; a[j] = t }
+            printf "%.3f", (n % 2) ? a[int(n/2)] : (a[n/2-1] + a[n/2]) / 2
+        }' "$ring" 2>/dev/null) || vsmooth=$vcell
+fi
+
+# Interpola el % sobre la curva
+cap=$(awk -v v="$vsmooth" -v vs="$CURVA_V" -v ps="$CURVA_P" 'BEGIN{
+    n = split(vs, V); split(ps, P)
+    if (v <= V[1]) { print 0;   exit }
+    if (v >= V[n]) { print 100; exit }
+    for (i = 1; i < n; i++)
+        if (v < V[i+1]) {
+            printf "%d", P[i] + (P[i+1]-P[i]) * (v-V[i]) / (V[i+1]-V[i])
+            exit
+        }
+}')
+[ -z "$cap" ] && cap=${cap_fw:-0}
+
+# Cargando (o enchufado sin cargar) el % sale del FIRMWARE, no de la curva:
+# es el único medidor que existe con el cargador puesto, porque el voltaje
+# está clavado por la fase CV y no dice nada (ver nota del suavizado). El
+# firmware miente a veces (saltos tipo 9→100), pero eso es raro; la curva
+# enchufada miente SIEMPRE. Si no reporta (cap_fw vacío o 0), se queda la
+# curva como antes. Descargando se sigue usando la curva, que es la que está
+# calibrada con las 26 descargas reales.
+if [ "$status" = "Charging" ] || [ "$status" = "Not charging" ]; then
+    if [ -n "$cap_fw" ] && [ "$cap_fw" -gt 0 ] 2>/dev/null; then
+        cap=$cap_fw
+    fi
+fi
+
+# Tope de carga -> 100%. Hace falta porque la curva satura en 100 a 4,15 V/celda
+# ajustados y el reposo lleno da 4,14: sin esto se quedaba clavada en 99%.
+#
+# Se exige que el pack lleve 2,5 min SEGUIDOS enchufado, sin cargar y por encima
+# de 4,30 V/celda en crudo. Lo de "seguidos" no es paranoia: es lo que separa los
+# dos "Full" distintos que canta este firmware (medidos en bateria.log).
+#   · Llena de verdad: la carga afloja sola y el voltaje se queda en 4,38
+#     (30 jul 04:18 y 31 jul 15:54, caída de solo 0,03 al pasar a Full).
+#   · Carga abortada:  el cargador corta de golpe y el voltaje se desploma a 3,86
+#     (30 jul 00:26 y 22:52, 31 jul 09:44, caída de 0,49).
+# En el segundo caso, en el INSTANTE del cambio a Full el voltaje todavía marca
+# 4,345 porque aún no ha caído. Mirando solo esa muestra se colaba como "llena" y
+# la barra se iba a 100% con el pack a medias — se vio al reproducir el histórico
+# con la primera versión de esta regla. Con la ventana de 2,5 min la caída ya ha
+# ocurrido y la condición se rompe sola.
+lleno_estable=$(awk -v now="$now" '
+    $1 > now-150 { n++; if ($3 == "Charging" || $4 < 4.30 || $5 != 1) mal++ }
+    END { print (n >= 5 && mal == 0) ? 1 : 0 }' "$ring" 2>/dev/null)
+[ "$lleno_estable" = "1" ] && cap=100
+
+# Limitador de salto: aun con la mediana de 5 min, un tramo de la curva muy
+# empinado (3,50-3,60 V/celda = 22%→37%) deja pasar saltos de varios puntos
+# de un refresco a otro (18→22→28→24→21 se vio en menos de 1 min el 29 jul,
+# desenchufado, sin ninguna transición AC de por medio: puro ruido del EC
+# amplificado por la pendiente de la curva). cap_show es lo que se enseña;
+# cap (crudo) se sigue guardando tal cual en el log para diagnóstico. Máximo
+# 1 punto por refresco → una diferencia de 10 puntos tarda ~1-2 min en
+# reflejarse completa, pero no vuelve a "saltar de la nada".
+capfile="${XDG_CACHE_HOME:-$HOME/.cache}/waybar-battery-lastcap"
+# flock: waybar lanza este script 2 veces por barra casi a la vez (ver
+# waybar-modulos-dos-barras). Sin serializar el read-modify-write de este
+# fichero, dos procesos leen el mismo prev_show antes de que el otro escriba
+# y el clamp de más abajo se salta un punto en cada carrera -> goteo lento
+# en vez de quedarse clavado. exec/flock sobre un fd dedicado lo evita.
+exec 200>"$capfile.lock"
+flock -x 200
+prev_show=$(cat "$capfile" 2>/dev/null)
+if [ -z "$prev_show" ] 2>/dev/null || ! [ "$prev_show" -eq "$prev_show" ] 2>/dev/null; then
+    cap_show=$cap
+else
+    d=$((cap - prev_show))
+    if   [ "$d" -gt 1 ];  then cap_show=$((prev_show + 1))
+    elif [ "$d" -lt -1 ]; then cap_show=$((prev_show - 1))
+    else                       cap_show=$cap
+    fi
+fi
+
+# NO se pone aquí un "enchufado el % nunca baja". Suena razonable (una batería en
+# el cargador no se descarga) y se probó el 31 jul 2026, pero es peor el remedio:
+# congela el valor inflado que traía de venir cargando. Reproduciendo el histórico
+# entero, en los cortes de carga daba 84% y 57% donde la realidad medida al
+# desenchufar era 33% y 34%. Sin la regla, esos mismos momentos dan 34% y 23%.
+# La bajada al cortarse la carga es fea pero va en la dirección correcta.
+echo "$cap_show" > "$capfile"
+
+mins_rest=$(( cap_show * PLENO_MIN / 100 ))
+
+# ── Log persistente ──────────────────────────────────────────────────────
+# El ring solo guarda 40 muestras (~6 min), así que para diagnosticar algo
+# raro había que pillarlo en caliente. Esto deja rastro de todo; el análisis
+# lo hace ~/scripts/bateria-log.sh, que marca los saltos y el flapping solo.
+log="${XDG_STATE_HOME:-$HOME/.local/state}/bateria.log"
+mkdir -p "${log%/*}"
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$now" "$status" "$ac_online" "$vcell" "$vadj" "$vsmooth" "$cap" "$cap_fw" >> "$log"
+# Recorte perezoso: reescribir el fichero en cada tick sería tirar I/O, así que
+# solo se poda cuando pasa de 4 MB (~10 días a 10 s por muestra).
+if [ "$(stat -c%s "$log" 2>/dev/null || echo 0)" -gt 4194304 ]; then
+    tail -n 30000 "$log" > "$log.tmp" && mv "$log.tmp" "$log"
+fi
+
+# ── Iconos Material Design (battery_low/medium/high + charging_*) ──
+B_HIGH=$(printf '\U000f12a3')      # 󱊣  nivel alto
+B_MED=$(printf '\U000f12a2')       # 󱊢  nivel medio
+B_LOW=$(printf '\U000f12a1')       # 󱊡  nivel bajo
+B_ALERT=$(printf '\U000f0083')     # 󰂃  crítico
+C_HIGH=$(printf '\U000f12a6')      # 󱊦  cargando alto
+C_MED=$(printf '\U000f12a5')       # 󱊥  cargando medio
+C_LOW=$(printf '\U000f12a4')       # 󱊤  cargando bajo
+
+# Icono de descarga según nivel
+if   [ "$cap_show" -ge 66 ]; then fill_icon="$B_HIGH"
+elif [ "$cap_show" -ge 33 ]; then fill_icon="$B_MED"
+elif [ "$cap_show" -ge 10 ]; then fill_icon="$B_LOW"
+else                              fill_icon="$B_ALERT"
+fi
+
+# Icono de carga según nivel
+if   [ "$cap_show" -ge 66 ]; then charge_icon="$C_HIGH"
+elif [ "$cap_show" -ge 33 ]; then charge_icon="$C_MED"
+else                              charge_icon="$C_LOW"
+fi
+
+if [ "$ac_online" = "1" ]; then
+    # Enchufado → SIEMPRE icono de la familia "cargando", pase lo que pase con
+    # el status (que oscila al enchufar). Lo que cambia es el color.
+    icon="$charge_icon"
+    if [ "$status" = "Charging" ]; then
+        class="charging"; color="#9ece6a"
+    elif [ "$cap_show" -lt 85 ]; then
+        # El cargador ha dejado de cargar sin estar llena de verdad. Antes del
+        # 29 jul la BIOS traía activo "Adaptive Battery Optimizer", que corta la
+        # carga a propósito a ~3,8 V/celda y aun así reporta "Full" (ver
+        # Configuration > Adaptive Battery Optimizer). Se deshabilitó ese día,
+        # pero hasta que no se vea un ciclo de carga completo bajo el ajuste
+        # nuevo no se sabe si esto era la causa entera o si además hay
+        # degradación real del pack. Ámbar porque no es un "enchufado y listo"
+        # normal en ninguno de los dos casos.
+        class="ac-parada"; color="#e0af68"
+    else
+        class="ac"; color="#9ece6a"
+    fi
+else
+    # Descargando → color por nivel
+    icon="$fill_icon"
+    if   [ "$cap_show" -ge 66 ]; then class="high";     color="#7dcfff"   # alto → azul
+    elif [ "$cap_show" -ge 33 ]; then class="medium";   color="#e0af68"   # medio → amarillo
+    else                              class="critical"; color="#f7768e"   # bajo/crítico → rojo (parpadea)
+    fi
+fi
+
+text="<span font='JetBrainsMono Nerd Font' color='${color}'>${icon} ${cap_show}%</span>"
+
+case "$status" in
+    Charging)       estado="<span foreground='#9ece6a'>cargando</span>" ;;
+    Discharging)    estado="<span foreground='#e0af68'>descargando</span>" ;;
+    Full)           if [ "$cap_show" -lt 85 ]; then
+                        estado="<span foreground='#e0af68'>carga detenida</span> <span foreground='#565f89' size='smaller'>(firmware la da por llena · ver Adaptive Battery Optimizer en BIOS)</span>"
+                    else
+                        estado="<span foreground='#9ece6a'>llena</span>"
+                    fi ;;
+    "Not charging") estado="conectado (sin cargar)" ;;
+    *)              estado="$status" ;;
+esac
+
+# ── Datos crudos (µ-unidades del kernel) ──
+e_now=$(cat "$BAT/energy_now" 2>/dev/null || echo 0)
+e_full=$(cat "$BAT/energy_full" 2>/dev/null || echo 0)
+e_design=$(cat "$BAT/energy_full_design" 2>/dev/null || echo 0)
+p_now=$(cat "$BAT/power_now" 2>/dev/null || echo 0)
+cycles=$(cat "$BAT/cycle_count" 2>/dev/null)
+tech=$(cat "$BAT/technology" 2>/dev/null)
+maker=$(cat "$BAT/manufacturer" 2>/dev/null)
+
+watt=$(awk -v p="$p_now" 'BEGIN{printf "%.1f", p/1e6}')
+volt=$(awk -v v="$v_now" 'BEGIN{printf "%.1f", v/1e6}')
+wh_now=$(awk -v e="$e_now" 'BEGIN{printf "%.1f", e/1e6}')
+wh_full=$(awk -v e="$e_full" 'BEGIN{printf "%.1f", e/1e6}')
+
+# Autonomía restante. NO se calcula con power_now: ese campo también está roto
+# (reportaba 70,0 W constantes cargando). Sale de la curva, que ya está medida
+# en minutos reales de uso.
+tiempo=""
+if [ "$status" = "Discharging" ] && [ "$mins_rest" -gt 0 ] 2>/dev/null; then
+    tiempo=$(printf '%dh %02dmin de autonomía' $((mins_rest/60)) $((mins_rest%60)))
+fi
+
+# Salud (capacidad actual vs de fábrica)
+# Ojo: si el gauge pone energy_full == energy_full_design está inventándose
+# el "de fábrica" a partir del valor actual, y la división da 100% siempre,
+# esté la batería como esté. En ese caso no se muestra nada (jul 2026).
+salud=""
+if [ "$e_design" -gt 0 ] && [ "$e_full" -ne "$e_design" ] 2>/dev/null; then
+    salud=$(awk -v f="$e_full" -v d="$e_design" 'BEGIN{printf "%d", f/d*100}')
+fi
+
+nl=$'\n'
+row() {
+    local pad=$((9 - ${#1})); [ "$pad" -lt 1 ] && pad=1
+    printf ' %s%*s%s' "$1" "$pad" '' "$2"
+}
+
+tt="<span foreground='${color}'><b>${icon} Batería  ${cap_show}%</b></span>${nl}"
+tt+="<span foreground='#565f89'>──────────────────────────</span>${nl}"
+tt+="$(row 'Estado' "$estado")${nl}"
+[ -n "$tiempo" ] && tt+="$(row 'Tiempo' "$tiempo")${nl}"
+tt+="$(row 'Consumo' "${watt} W")${nl}"
+tt+="$(row 'Voltaje' "${volt} V <span foreground='#565f89'>· ${vcell} V/celda</span>")${nl}"
+# Cada dato del firmware se enseña solo si existe. Ver el comentario de cap_fw:
+# esta BAT0 ya no expone capacity ni energy_full, y poner 0 hacía pasar por
+# lectura real lo que es un hueco.
+if [ -n "$cap_fw" ]; then fw_txt="<span foreground='#f7768e'>dice ${cap_fw}%</span>"
+else                      fw_txt="<span foreground='#565f89'>no reporta %</span>"
+fi
+if [ "$e_full" -gt 0 ] 2>/dev/null; then fw_txt+=" <span foreground='#565f89' size='smaller'>· ${wh_now}/${wh_full} Wh</span>"
+elif [ "$e_now" -gt 0 ] 2>/dev/null;  then fw_txt+=" <span foreground='#565f89' size='smaller'>· ${wh_now} Wh (sin total)</span>"
+fi
+tt+="$(row 'Firmware' "$fw_txt")${nl}"
+[ -n "$salud" ] && tt+="$(row 'Salud' "<span foreground='#9ece6a'>${salud}%</span> <span foreground='#565f89' size='smaller'>de fábrica</span>")${nl}"
+[ -n "$cycles" ] && tt+="$(row 'Ciclos' "$cycles")${nl}"
+tt+="$(row 'Tipo' "${tech:-?}${maker:+ · $maker}")"
+if [ "$status" = "Charging" ] || [ "$status" = "Not charging" ]; then
+    fuente=" % del firmware al cargar · por voltaje (curva de 26 descargas) en batería"
+else
+    fuente=" % por voltaje · curva medida de 26 descargas"
+fi
+tt+="${nl}<span foreground='#565f89' size='smaller'>${fuente}</span>"
+tooltip="<span font_family='JetBrainsMono Nerd Font'>${tt}</span>"
+
+jq -nc --arg text "$text" --arg tooltip "$tooltip" --arg class "$class" '{text:$text, tooltip:$tooltip, class:$class}'

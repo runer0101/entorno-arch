@@ -1,0 +1,674 @@
+#!/bin/bash
+# =============================================================
+#  NetManagerDM — Menú WiFi/Ethernet con NetworkManager (Wayland)
+#
+#  UN SOLO cuadro al pulsar el botón de red de waybar. Abre
+#  INSTANTE, no se muere solo y se cierra con un clic fuera sin
+#  bloquear el escritorio.
+#
+#  ── Por qué un solo cuadro y no "herramientas" ⇄ "redes" ──────
+#  El diseño anterior era de DOS saltos: primero "Herramientas" y
+#  desde ahí "Ver redes disponibles". Para conectar a una red había
+#  que cruzar dos menus, con un escaneo de red en medio. Con el
+#  comportamiento inestable de wofi (ver más abajo) cada salto era
+#  una oportunidad de que el cuadro se cerrara solo, y por eso
+#  "conectarme a una red" era la acción que más fallaba. Ahora las
+#  redes y las herramientas viven en el MISMO cuadro: una sola
+#  pulsación, la red está a la vista, se elige y se conecta.
+#
+#  ── Mecánica: el cuadro se cerraba SOLO, y por qué ───────────
+#  El fallo original NO era que el menú fuera ventana normal: era
+#  el watcher (wofi-autoclose.sh), que lo mataba en cuanto
+#  `hyprctl activewindow` devolvía una clase distinta de "wofi".
+#
+#  El foco de Hyprland parpadea. Medido en esta máquina con el menú
+#  abierto, 29 de 40 muestras devolvían una clase ajena a wofi
+#  (Alacritty, brave-browser…). El watcher sondeaba cada 100 ms,
+#  así que en algún momento de cada apertura pillaba una de esas
+#  muestras y mandaba SIGTERM al menú: se cerraba a mitad de
+#  camino, justo cuando ibas a pulsar una opción. Eso era el
+#  "se sale / se confunde".
+#
+#  ── Por qué NO se pasó a layer-shell ──────────────────────────
+#  Se probó y es PEOR: una superficie layer-shell de wofi agarra
+#  el teclado en exclusiva, así que mientras el menú está abierto
+#  Hyprland no entrega ni un clic a nadie y el escritorio entero
+#  queda bloqueado (se ve en menu-clic.sh, que documenta el mismo
+#  problema para el launcher). Se volvió a --normal-window.
+#
+#  Para recuperar el "clic fuera cierra" sin bloquear nada, el cierre
+#  va por un BIND DEL COMPOSITOR (el mismo truco que el launcher):
+#  mientras el cuadro está abierto se registra un bind no consumidor
+#  en el botón izquierdo y netmenu-clic.sh mira, con la posición
+#  real del puntero, si el clic cayó dentro o fuera del rectángulo
+#  del cuadro. Dentro → no hace nada y el clic sigue hasta wofi
+#  (así se pueden elegir opciones). Fuera → cierra ESTE cuadro.
+#
+#  ── Otras correcciones ────────────────────────────────────────
+#  · NO se mata más `pkill -x wofi` global: abrir la red mataba
+#    también el launcher de apps (y al revés). Ahora el cierre por
+#    interruptor mata SÓLO el wofi que abrió este script.
+#  · El escaneo ya NO bloquea 5-7 s con la pantalla vacía. Al
+#    abrir se lanza en segundo plano y el cuadro sale ya, con la
+#    caché del último escaneo. "Refrescar" fuerza uno nuevo.
+#  · Si una clave falla o el usuario cancela el diálogo, el cuadro
+#    vuelve a abrirse en el sitio: antes tocaba volver a pulsar el
+#    botón de la barra (y si se pulsaba, lo cerraba).
+#
+#  Fiabilidad de perfiles (ago 2026): NUNCA se borra un perfil
+#  guardado por un fallo transitorio (psk mismatch / beacon-loss).
+#  Perfiles guardados se detectan por SSID, no por nombre.
+# =============================================================
+
+WOFI_STYLE="$HOME/.config/wofi/style-wlogout.css"
+[ -f "$WOFI_STYLE" ] || WOFI_STYLE="$HOME/.config/wofi/style.css"
+
+# Alto máximo del cuadro. El config global de wofi trae height=325
+# y con muchas opciones CORTABA la lista; por eso todos los cuadros
+# pasan -L con su alto exacto (ver menu()).
+#
+# 8 y no más por el alto de fila de style-wlogout.css: medido en esta
+# máquina, cada fila ocupa ~120 px, así que -L 8 da 960 px (cabe en
+# los 1080 px del monitor dejando margen) y -L 9 ya son 1072 px, es
+# decir la pantalla entera. Con más de 8 filas se baja con scroll,
+# igual que antes.
+MAX_LINES=8
+
+notify() { notify-send -a "Red" "Red" "$1" 2>/dev/null; }
+
+# ── Instancia única + toggle ──────────────────────────────────
+# Un solo NetManagerDM a la vez. Si ya hay uno vivo, ESTE clic lo
+# cierra y termina (como el launcher). Lo que se mata es SÓLO lo
+# nuestro: el PID de este script y el PID del wofi que él abrió.
+LOCK_FILE="/tmp/netmanagerdm.lock"
+PID_FILE="/tmp/netmanagerdm.pid"
+WOFI_PID_FILE="/tmp/netmanagerdm.wofi.pid"
+
+single_instance() {
+    exec 9>"$LOCK_FILE"
+    if ! flock -n 9; then
+        local old wofi_old
+        old=$(cat "$PID_FILE" 2>/dev/null)
+        [ -n "$old" ] && kill "$old" 2>/dev/null
+        wofi_old=$(cat "$WOFI_PID_FILE" 2>/dev/null)
+        [ -n "$wofi_old" ] && kill "$wofi_old" 2>/dev/null
+        exit 0
+    fi
+    echo $$ > "$PID_FILE"
+    trap 'rm -f "$PID_FILE" "$WOFI_PID_FILE" >/dev/null 2>&1' EXIT
+    # Un bind que se quedó puesto de una ejecución anterior se retira
+    # al entrar, para no arrastrarlo.
+    [ -e "$BIND_ACTIVO" ] && quitar_bind
+    rm -f /tmp/wifi-qr-*.png 2>/dev/null
+}
+
+# ── Cuadros ───────────────────────────────────────────────────
+# wofi como VENTANA NORMAL (--normal-window), NO layer-shell.
+#
+# OJO, esto es lo opuesto de lo que parece, y ya se probó al revés:
+# en layer-shell NO FUNCIONA porque esa superficie agarra el teclado
+# en exclusiva y mientras el menú está abierto Hyprland no entrega
+# ni un clic a nadie — el escritorio entero queda bloqueado. Es lo
+# que documenta menu-clic.sh del launcher, que sufre de lo mismo y
+# por eso cierra el menú con un bind del compositor.
+#
+# Con --normal-window el escritorio sigue vivo (se puede cambiar de
+# ventana, abrir otra cosa) y el clic fuera se cierra con ese mismo
+# bind: aquí se registra con poner_bind / quitar_bind y lo decide
+# netmenu-clic.sh.
+#
+# NO se usan ni wofi-autoclose.sh ni nada que sondee el foco: esa
+# vía era la que provocaba el cierre espurio (el foco de Hyprland
+# parpadea, medido 29/40 muestras ajenas, y el sondeo cada 100 ms
+# mataba el menú solo). El PID se publica en WOFI_PID_FILE para
+# poder cerrar ESTE wofi sin tocar los demás.
+CLIC="$HOME/.config/hypr/scripts/wofi-outside-click.sh"
+# Testigo de "el bind está puesto". Sin esto, abrir y cerrar el menú
+# varias veces iba dejando un bind de mouse:272 cada vez (medido: 3
+# ciclos = +1 neto) porque hl.unbind quita uno solo por llamada.
+# Con el testigo se registra UNA vez y se quita UNA vez, y siempre
+# emparejados.
+BIND_ACTIVO="/tmp/netmanagerdm.bind"
+
+poner_bind() {
+    [ -e "$BIND_ACTIVO" ] && return 0
+    hyprctl eval "hl.bind(\"mouse:272\", hl.dsp.exec_cmd(\"$CLIC $WOFI_PID_FILE\"), { non_consuming = true })" >/dev/null 2>&1 \
+        && : > "$BIND_ACTIVO"
+}
+quitar_bind() {
+    [ -e "$BIND_ACTIVO" ] || return 0
+    hyprctl eval 'hl.unbind("mouse:272")' >/dev/null 2>&1
+    # >/dev/null: menu() se llama dentro de `sel=$( ... | menu ... )`,
+    # así que cualquier salida por stdout se cuela en $sel y corrompe
+    # la opción elegida.
+    rm -f "$BIND_ACTIVO" >/dev/null 2>&1
+}
+
+menu() {
+    local prompt="$1" items n pid
+    items=$(cat)
+    n=$(printf '%s\n' "$items" | grep -c .)
+    [ "$n" -ge 1 ] || return 1
+    [ "$n" -gt "$MAX_LINES" ] && n="$MAX_LINES"
+    quitar_bind
+    poner_bind
+    # OJO: hay que volver a pasarle los ítems por tubería. Arriba se
+    # consumieron con `items=$(cat)`, así que el stdin de esta función
+    # ya está a EOF; si se lanza wofi sin redirigir, abre VACÍO
+    # (medido: ventana de 92 px, cero opciones, nada que elegir).
+    printf '%s\n' "$items" | wofi --dmenu --normal-window --hide-search \
+        --insensitive --cache-file=/dev/null -L "$n" --prompt "$prompt" \
+        --style "$WOFI_STYLE" &
+    pid=$!
+    echo "$pid" > "$WOFI_PID_FILE" 2>/dev/null
+    wait "$pid"
+    quitar_bind
+    rm -f "$WOFI_PID_FILE" >/dev/null 2>&1
+}
+
+# Entrada de texto libre (se escribe y se pulsa Enter).
+input() {
+    local pid
+    quitar_bind
+    poner_bind
+    : | wofi --dmenu --normal-window --cache-file=/dev/null \
+        --prompt "$1" --style "$WOFI_STYLE" &
+    pid=$!
+    echo "$pid" > "$WOFI_PID_FILE" 2>/dev/null
+    wait "$pid"
+    quitar_bind
+    rm -f "$WOFI_PID_FILE" >/dev/null 2>&1
+}
+
+# Pide la clave con un diálogo GTK propio: muestra a qué red te
+# conectas, campo oculto y un icono de OJO para mostrar/ocultar.
+# Imprime la clave y sale 0; sale 1 sin imprimir si cancelas.
+ask_pass() { python3 "$HOME/.config/hypr/scripts/wifi-passbox.py" "$1"; }
+
+# ── Estado de red ─────────────────────────────────────────────
+# SSID conectado ahora mismo. Se consulta por el TIPO de conexión
+# (no traducible); el campo ACTIVE/IN-USE de nmcli viene traducido
+# ("sí"/"yes") y no sirve para comparar.
+current_ssid() {
+    nmcli -t -f TYPE,NAME connection show --active 2>/dev/null \
+        | while IFS= read -r l; do
+              case "$l" in
+                  802-11-wireless:*) n=${l#802-11-wireless:}
+                                     n=${n//\\:/:}; printf '%s' "${n//\\\\/\\}"; break ;;
+              esac
+          done
+}
+
+wifi_iface() { nmcli -t -f DEVICE,TYPE device 2>/dev/null | awk -F: '$2=="wifi"{print $1; exit}'; }
+
+# UUID del perfil guardado cuyo SSID coincide (compara SSID, no el
+# nombre del perfil: así BIBLIOTECA-2G/5G se reconocen como
+# guardadas y no duplican).
+profile_for_ssid() {
+    local ssid="$1" uuid pssid
+    while IFS= read -r uuid; do
+        [ -z "$uuid" ] && continue
+        pssid=$(nmcli -g 802-11-wireless.ssid connection show "$uuid" 2>/dev/null)
+        [ "$pssid" = "$ssid" ] && { printf '%s' "$uuid"; return 0; }
+    done < <(nmcli -t -f UUID,TYPE connection show 2>/dev/null | awk -F: '$2=="802-11-wireless"{print $1}')
+    return 1
+}
+
+# Conjunto de SSID que ya tienen perfil guardado (para pintar la ★).
+declare -A SAVED_SSID
+load_saved_ssids() {
+    SAVED_SSID=()
+    local uuid pssid
+    while IFS= read -r uuid; do
+        [ -z "$uuid" ] && continue
+        pssid=$(nmcli -g 802-11-wireless.ssid connection show "$uuid" 2>/dev/null)
+        [ -n "$pssid" ] && SAVED_SSID["$pssid"]=1
+    done < <(nmcli -t -f UUID,TYPE connection show 2>/dev/null | awk -F: '$2=="802-11-wireless"{print $1}')
+}
+
+# ── Lista de redes ────────────────────────────────────────────
+# SSID va al final para poder separarlo aunque contenga ":".
+declare -A SSID_OF
+declare -a ROWS
+declare -a CONN_ROWS   # la red conectada va siempre arriba
+
+build_list() {
+    SSID_OF=(); ROWS=(); CONN_ROWS=()
+    local -A seen=()
+    local pass line inuse signal security ssid bars lock mark row
+    # Dos pasadas: primero la red CONECTADA. Si un SSID sale duplicado
+    # (varios APs con el mismo nombre), gana la fila con ✔ y no la del
+    # AP vecino, que podía llegar antes por señal y taparla.
+    for pass in conn rest; do
+        while IFS= read -r line; do
+            inuse=${line%%:*};    line=${line#*:}
+            signal=${line%%:*};   line=${line#*:}
+            security=${line%%:*}; ssid=${line#*:}
+            ssid=${ssid//\\:/:}
+            ssid=${ssid//\\\\/\\}
+            [ -z "$ssid" ] && continue
+            [ "$pass" = conn ] && [ "$inuse" != "*" ] && continue
+            [ "$pass" = rest ] && [ "$inuse" = "*" ] && continue
+            [ -n "${seen[$ssid]}" ] && continue
+            seen[$ssid]=1
+
+            if   [ "$signal" -ge 75 ] 2>/dev/null; then bars="▂▄▆█"
+            elif [ "$signal" -ge 50 ] 2>/dev/null; then bars="▂▄▆░"
+            elif [ "$signal" -ge 25 ] 2>/dev/null; then bars="▂▄░░"
+            else                                        bars="▂░░░"
+            fi
+
+            if [ -z "$security" ] || [ "$security" = "--" ]; then lock="(abierta)"; else lock="󰌾"; fi
+            if [ "$inuse" = "*" ]; then mark="✔ "; else mark="  "; fi
+            # Guardada previamente (por SSID)
+            [ -n "${SAVED_SSID[$ssid]}" ] && lock="$lock ★"
+
+            row="${mark}${ssid}  ${bars} ${signal}%  ${lock}"
+            SSID_OF["$row"]="$ssid"
+            if [ "$inuse" = "*" ]; then CONN_ROWS+=("$row"); else ROWS+=("$row"); fi
+        done < <(nmcli -t -f IN-USE,SIGNAL,SECURITY,SSID device wifi list --rescan no 2>/dev/null)
+    done
+}
+
+is_open() {
+    local ssid="$1" sec
+    sec=$(nmcli -t -f SECURITY,SSID device wifi list --rescan no 2>/dev/null \
+          | while IFS= read -r l; do
+                s=${l%%:*}; n=${l#*:}; n=${n//\\:/:}
+                [ "$n" = "$ssid" ] && { printf '%s' "$s"; break; }
+            done)
+    [ -z "$sec" ] || [ "$sec" = "--" ]
+}
+
+# ── Escaneo ───────────────────────────────────────────────────
+# El escaneo ya NO se espera al abrir el menú. Antes bloqueaba 5-7 s
+# con la pantalla vacía mientras esperaba a NetworkManager; durante
+# ese hueco el usuario pulsaba otra vez el icono y el interruptor
+# destruía el script entero. Ahora se dispara en segundo plano: el
+# cuadro sale ya con la caché y, para cuando lo vuelvas a abrir, las
+# redes ya están al día. Para forzar uno inmediato: "Refrescar".
+background_rescan() {
+    [ "$(nmcli radio wifi)" = "enabled" ] || return 0
+    # Subshell para desprenderlo: el script puede cerrarse mientras
+    # el escaneo sigue, y no debe morir con él.
+    ( nmcli device wifi rescan >/dev/null 2>&1 & )
+}
+
+# ── Escaneo ESPERADO (solo para "Refrescar") ──────────────────
+# Al abrir el menú NO se espera nada (ver arriba). "Refrescar" sí
+# espera, y espera DE VERDAD: NetworkManager publica por D-Bus
+# LastScan, el instante (ms desde el arranque) en que TERMINÓ el
+# último escaneo. Se guarda ese valor, se pide uno nuevo y se espera
+# a que AVANCE; así la lista sale ya completa y no a medias.
+# Antes esta espera era el arranque del menú, y por eso el cuadro no
+# salía durante 5-7 s.
+WIFI_DEV=""
+wifi_dev_path() {
+    [ -n "$WIFI_DEV" ] && { printf '%s' "$WIFI_DEV"; return 0; }
+    local d t
+    for d in /org/freedesktop/NetworkManager/Devices/{1..16}; do
+        t=$(busctl call org.freedesktop.NetworkManager "$d" \
+            org.freedesktop.DBus.Properties Get ss \
+            org.freedesktop.NetworkManager.Device DeviceType 2>/dev/null)
+        case "$t" in
+            *" u 2"*) WIFI_DEV="$d"; printf '%s' "$d"; return 0 ;;
+        esac
+    done
+    return 1
+}
+
+now_ms() { awk '{printf "%d", $1*1000}' /proc/uptime; }
+
+last_scan_ms() {
+    local p
+    p=$(wifi_dev_path) || return 1
+    busctl call org.freedesktop.NetworkManager "$p" \
+        org.freedesktop.DBus.Properties Get ss \
+        org.freedesktop.NetworkManager.Device.Wireless LastScan 2>/dev/null \
+        | awk '{print $3}'
+}
+
+# Espera a que el escaneo termine de verdad (máx ~7 s). Si D-Bus no
+# responde, cae a una espera fija de 5.5 s.
+wait_rescan() {
+    local before start cur retries=0
+    before=$(last_scan_ms)
+    nmcli device wifi rescan >/dev/null 2>&1
+    [ -z "$before" ] && { sleep 5.5; return 0; }
+    start=$(now_ms)
+    while [ $(( $(now_ms) - start )) -lt 7000 ]; do
+        sleep 0.2
+        cur=$(last_scan_ms)
+        [ -n "$cur" ] && [ "$cur" != "$before" ] && { sleep 0.3; return 0; }
+        # Reintento por si NM descartó la petición (rate-limit).
+        if [ $(( $(now_ms) - start )) -ge $(( 2500 + retries*2500 )) ] && [ "$retries" -lt 2 ]; then
+            nmcli device wifi rescan >/dev/null 2>&1
+            retries=$((retries + 1))
+        fi
+    done
+    notify "El escaneo tardó demasiado: se muestra la caché"
+    return 0
+}
+
+# ── Conexión ──────────────────────────────────────────────────
+# Pide clave y crea el perfil. Solo aquí (perfil recién creado que
+# falla) se borra el perfil fallido; nunca uno que ya funcionaba.
+ask_and_connect() {
+    local ssid="$1" pass out intento=0
+    while [ "$intento" -lt 3 ]; do
+        intento=$((intento + 1))
+        pass=$(ask_pass "$ssid")
+        [ -z "$pass" ] && return 1     # cancelado: el menú reabre
+
+        if [ ${#pass} -lt 8 ]; then
+            notify "La clave WPA necesita 8 caracteres o más (intento ${intento}/3)"
+            continue
+        fi
+
+        notify "Conectando a ${ssid}…"
+        out=$(nmcli device wifi connect "$ssid" password "$pass" 2>&1)
+        if [ $? -eq 0 ]; then
+            notify "✔ Conectado a ${ssid}"; return 0
+        fi
+
+        nmcli connection delete "$ssid" >/dev/null 2>&1
+        case "$out" in
+            *[Ss]ecrets*|*ontraseñ*|*assword*|*802-11-wireless-security*)
+                notify "✖ Clave incorrecta (intento ${intento}/3)" ;;
+            *)
+                notify "✖ Error: ${out##*: } (intento ${intento}/3)" ;;
+        esac
+    done
+    return 1
+}
+
+connect_wifi() {
+    local ssid="$1" uuid out try
+
+    if [ "$ssid" = "$(current_ssid)" ]; then
+        notify "Ya estás conectado a ${ssid}"; return 0
+    fi
+
+    # 1) Perfil ya guardado (buscado por SSID) → conectar por UUID.
+    #    Los "psk mismatch" / "beacon-loss" son fallos transitorios:
+    #    se reintenta SIN borrar el perfil. Solo se pide clave nueva
+    #    si NM dice explícitamente que faltan secretos.
+    uuid=$(profile_for_ssid "$ssid")
+    if [ -n "$uuid" ]; then
+        notify "Conectando a ${ssid}…"
+        for try in 1 2; do
+            if out=$(nmcli connection up uuid "$uuid" 2>&1); then
+                notify "✔ Conectado a ${ssid}"; return 0
+            fi
+            case "$out" in
+                *[Ss]ecrets*|*802-11-wireless-security*|*[Pp]assword*)
+                    notify "La clave guardada ya no vale, pídela de nuevo."
+                    ask_and_connect "$ssid"; return $? ;;
+            esac
+            sleep 2   # fallo transitorio: reintenta, perfil intacto
+        done
+        notify "✖ No se pudo conectar a ${ssid} (perfil guardado intacto)"
+        return 1
+    fi
+
+    # 2) Red abierta → sin clave
+    if is_open "$ssid"; then
+        notify "Conectando a ${ssid} (abierta)…"
+        if out=$(nmcli device wifi connect "$ssid" 2>&1); then
+            notify "✔ Conectado a ${ssid}"
+            return 0
+        fi
+        notify "✖ No se pudo conectar: ${out##*: }"
+        return 1
+    fi
+
+    # 3) Con clave (perfil nuevo)
+    ask_and_connect "$ssid"
+}
+
+connect_hidden() {
+    local ssid pass out
+    ssid=$(input "Nombre de la red oculta")
+    [ -z "$ssid" ] && return 1
+    pass=$(ask_pass "$ssid")
+    [ -z "$pass" ] && return 1
+    out=$(nmcli device wifi connect "$ssid" password "$pass" hidden yes 2>&1)
+    if [ $? -eq 0 ]; then notify "✔ Conectado a ${ssid}"
+    else nmcli connection delete "$ssid" >/dev/null 2>&1; notify "✖ No se pudo conectar: ${out##*: }"; fi
+    return 1
+}
+
+disconnect_wifi() {
+    local ssid uuid
+    ssid=$(current_ssid)
+    [ -z "$ssid" ] && { notify "No hay WiFi conectado"; return 0; }
+    uuid=$(profile_for_ssid "$ssid")
+    if [ -n "$uuid" ] && nmcli connection down uuid "$uuid" >/dev/null 2>&1; then
+        notify "󰅖 Desconectado de ${ssid} (perfil guardado, no borrado)"
+    else
+        notify "✖ No se pudo desconectar de ${ssid}"
+    fi
+}
+
+# Conectar internet "automático": deja que NetworkManager elija la
+# mejor red con autoconexión. Desconectar va por DISPOSITIVO para
+# que NM no la levante otra vez.
+net_connect() {
+    local iface ssid_now uuid last
+    iface=$(wifi_iface)
+    notify "󰖩 Conectando a internet…"
+    if ! nmcli device connect "$iface" >/dev/null 2>&1; then
+        # Si no hay autoconexión, sube el último perfil WiFi usado.
+        last=$(nmcli -t -f TIMESTAMP,TYPE,UUID connection show 2>/dev/null \
+               | awk -F: '$2=="802-11-wireless"{print $1":"$3}' \
+               | sort -t: -k1 -nr | head -1 | cut -d: -f2)
+        [ -n "$last" ] && nmcli connection up uuid "$last" >/dev/null 2>&1
+    fi
+
+    ssid_now=$(current_ssid)
+    if [ -n "$ssid_now" ]; then
+        # Autoconexión ON en el perfil: se reconecta sola y no se pierde luego.
+        uuid=$(profile_for_ssid "$ssid_now")
+        [ -n "$uuid" ] && nmcli connection modify "$uuid" \
+            connection.autoconnect yes connection.autoconnect-priority 10 >/dev/null 2>&1
+        notify "✔ Conectado a ${ssid_now} · autoconexión activada"
+        return 0
+    fi
+    notify "✖ Sin conexión automática. Elige una red de la lista."
+    return 1
+}
+
+forget_wifi() {
+    local names sel
+    names=$(nmcli -g NAME,TYPE connection show 2>/dev/null \
+            | awk -F: '$2 ~ /wireless/ {print $1}')
+    [ -z "$names" ] && { notify "No hay redes guardadas"; return 0; }
+    sel=$(printf '%s\n' "$names" | menu "Olvidar qué red")
+    [ -z "$sel" ] && return 1
+    if nmcli connection delete "$sel" >/dev/null 2>&1; then
+        notify "🗑 Red olvidada: ${sel}"
+    else
+        notify "✖ No se pudo olvidar ${sel}"
+    fi
+    return 1
+}
+
+# ── Extras (aprovechando Arch/Linux) ──────────────────────────
+
+# Escapa \ ; , : " para la cadena estándar WIFI: del código QR.
+wifi_qr_escape() { printf '%s' "$1" | sed 's/[\\;,:"]/\\&/g'; }
+
+# Comparte la red actual como QR: otro móvil lo escanea y se conecta solo.
+qr_share() {
+    local ssid uuid pass data png
+    ssid=$(current_ssid)
+    [ -z "$ssid" ] && { notify "No estás conectado a ninguna red WiFi"; return 0; }
+    if ! command -v qrencode >/dev/null 2>&1; then
+        notify "Para el QR instala qrencode:  sudo pacman -S qrencode"
+        return 0
+    fi
+    uuid=$(profile_for_ssid "$ssid")
+    pass=$(nmcli -s -g 802-11-wireless-security.psk connection show "$uuid" 2>/dev/null)
+    if [ -n "$pass" ]; then
+        data="WIFI:T:WPA;S:$(wifi_qr_escape "$ssid");P:$(wifi_qr_escape "$pass");;"
+    else
+        data="WIFI:T:nopass;S:$(wifi_qr_escape "$ssid");;"
+    fi
+    png="/tmp/wifi-qr-$$.png"
+    qrencode -o "$png" -s 10 -m 3 "$data" 2>/dev/null || { notify "✖ No se pudo generar el QR"; return 0; }
+    notify "󰐲 Escanea el QR para conectarte a ${ssid}"
+    # Visor GTK propio: muestra el QR con el SSID y una ✕ arriba a la derecha.
+    python3 "$HOME/.config/hypr/scripts/wifi-qr.py" "$png" "$ssid" 2>/dev/null
+    rm -f "$png"
+}
+
+# Lista de perfiles VPN / WireGuard (vacío si no hay ninguno).
+vpn_list() { nmcli -t -f NAME,TYPE connection show 2>/dev/null | awk -F: '$2 ~ /vpn|wireguard/ {print $1}'; }
+
+vpn_action() {
+    local names sel
+    names=$(vpn_list)
+    [ -z "$names" ] && { notify "No tienes ninguna VPN configurada"; return 0; }
+    sel=$(printf '%s\n' "$names" | menu "VPN: conectar / desconectar")
+    [ -z "$sel" ] && return 1
+    if nmcli -t -f NAME connection show --active 2>/dev/null | grep -qx "$sel"; then
+        nmcli connection down "$sel" >/dev/null 2>&1 && notify "🔒 VPN «${sel}» desconectada"
+    else
+        nmcli connection up "$sel" >/dev/null 2>&1 && notify "🔒 VPN «${sel}» conectada" \
+            || notify "✖ No se pudo conectar la VPN «${sel}»"
+    fi
+    return 1
+}
+
+# Crea o apaga un hotspot con nmcli. Ojo: usa la misma antena WiFi, así que
+# mientras el hotspot está activo se corta tu conexión WiFi de cliente.
+hotspot_toggle() {
+    local name pass
+    nmcli -t -f NAME connection show --active 2>/dev/null | grep -qx "Hotspot" && {
+        nmcli connection down Hotspot >/dev/null 2>&1
+        notify "📡 Hotspot apagado"
+        return 1
+    }
+    name=$(input "Nombre del hotspot (SSID)")
+    [ -z "$name" ] && return 1
+    pass=$(ask_pass "$name")
+    [ -z "$pass" ] && return 1
+    if [ ${#pass} -lt 8 ]; then notify "La clave del hotspot necesita 8 caracteres o más"; return 1; fi
+    if nmcli device wifi hotspot ssid "$name" password "$pass" >/dev/null 2>&1; then
+        notify "📡 Hotspot «${name}» activo. Nota: mientras dure, tu WiFi de cliente queda cortado (misma antena)."
+    else
+        notify "✖ No se pudo crear el hotspot"
+    fi
+    return 1
+}
+
+# Ping medio (3 paquetes) + velocidad de bajada real (descarga con curl).
+speed_test() {
+    notify "📊 Midiendo ping y velocidad…"
+    local ping_avg bps mbit
+    ping_avg=$(LC_ALL=C ping -c3 -W3 1.1.1.1 2>/dev/null | awk -F'/' 'END{if($5!="")printf "%.0f",$5}')
+    if command -v curl >/dev/null 2>&1; then
+        bps=$(curl -s -o /dev/null -w '%{speed_download}' --max-time 10 \
+              'https://speed.cloudflare.com/__down?bytes=10000000' 2>/dev/null)
+        mbit=$(awk -v b="${bps:-0}" 'BEGIN{printf "%.1f", b*8/1000000}')
+    fi
+    notify "📊 Ping: ${ping_avg:-?} ms    ·    Bajada: ${mbit:-?} Mbit/s"
+}
+
+# ── EL CUADRO ÚNICO ───────────────────────────────────────────
+# Devuelve: 0 = salir · 1 = repetir (el cuadro vuelve a abrirse).
+main_menu() {
+    local estado sel ssid vpn
+    estado=$(current_ssid)
+    vpn=$(vpn_list)
+
+    # "Salir" SIEMPRE arriba: es la selección por defecto, así que
+    # Enter cancela en vez de intentar conectar a la primera red.
+    local ACT_EXIT="✖  Salir"
+    local ACT_DISCONNECT="󰅖  Desconectar"
+    local ACT_AUTO="󰤩  Conectar a internet (automático)"
+    local ACT_REFRESH="󰑐  Refrescar lista de redes"
+    local ACT_HIDDEN="󰛳  Conectar a red oculta"
+    local ACT_FORGET="󰩹  Olvidar una red guardada"
+    local ACT_QR="󰐲  Compartir esta red (QR)"
+    local ACT_VPN="󰦝  VPN: conectar / desconectar"
+    local ACT_HOTSPOT="󰢹  Hotspot: crear"
+    local ACT_SPEED="󰓅  Velocidad y ping"
+
+    load_saved_ssids
+    build_list
+    local -a NETS=("${CONN_ROWS[@]}" "${ROWS[@]}")
+    local hay_nets=0
+    [ "${#NETS[@]}" -gt 0 ] && hay_nets=1
+
+    sel=$({
+        printf '%s\n' "$ACT_EXIT"
+        # Redes primero: es lo que se usa el 90% de las veces.
+        if [ "$hay_nets" -eq 1 ]; then
+            printf '%s\n' "${NETS[@]}"
+        fi
+        if [ -n "$estado" ]; then
+            printf '%s\n' "$ACT_DISCONNECT"
+            printf '%s\n' "$ACT_QR"
+        else
+            printf '%s\n' "$ACT_AUTO"
+        fi
+        printf '%s\n' "$ACT_REFRESH"
+        printf '%s\n' "$ACT_HIDDEN"
+        printf '%s\n' "$ACT_FORGET"
+        [ -n "$vpn" ] && printf '%s\n' "$ACT_VPN"
+        nmcli -t -f NAME connection show --active 2>/dev/null | grep -qx "Hotspot" \
+            && printf '%s\n' "󰢹  Hotspot: apagar (activo)" \
+            || printf '%s\n' "$ACT_HOTSPOT"
+        printf '%s\n' "$ACT_SPEED"
+    } | menu "Red")
+
+    [ -n "$sel" ] || return 0
+    case "$sel" in
+        "$ACT_EXIT")        return 0 ;;
+        "$ACT_DISCONNECT")  disconnect_wifi ;;
+        "$ACT_AUTO")        net_connect ;;
+        "$ACT_REFRESH")     notify "Buscando redes…"; wait_rescan; return 1 ;;
+        "$ACT_HIDDEN")      connect_hidden ;;
+        "$ACT_FORGET")      forget_wifi ;;
+        "$ACT_QR")          qr_share ;;
+        "$ACT_VPN")         vpn_action ;;
+        "$ACT_SPEED")       speed_test ;;
+        *Hotspot*)          hotspot_toggle ;;
+        *)  ssid="${SSID_OF[$sel]}"
+            [ -n "$ssid" ] && connect_wifi "$ssid" ;;
+    esac
+    return 1
+}
+
+# ── Ejecución ─────────────────────────────────────────────────
+# El menú es un bucle: si una acción NO termina en éxito (se
+# canceló el diálogo de clave, la clave falló, se apagó el
+# hotspot…), el cuadro se vuelve a abrir donde estabas. Antes
+# tocaba pulsar otra vez el botón de la barra — y como el botón es
+# un interruptor, pulsar ahí cerraba lo que había.
+main() {
+    single_instance
+    background_rescan
+
+    # WiFi apagado: solo ofrece encenderlo; al encenderlo sigue al
+    # menú normal (antes simplemente terminaba y había que reabrir).
+    if [ "$(nmcli radio wifi)" != "enabled" ]; then
+        local sel
+        sel=$(printf '✖  Salir\n󰖩  Encender WiFi\n' | menu "WiFi apagado")
+        case "$sel" in
+            *"Encender WiFi") nmcli radio wifi on; notify "WiFi encendido" ;;
+            *) return 0 ;;
+        esac
+    fi
+
+    while :; do
+        main_menu; rc=$?
+        [ "$rc" -eq 0 ] && return 0
+    done
+}
+
+# Si se «sourcea» (pruebas), no arrancar la UI: solo deja las funciones.
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+    main "$@"
+fi

@@ -1,0 +1,90 @@
+#!/bin/bash
+# =============================================================
+#  ScreenLocker — emilia rice (Hyprland/Wayland)
+#  Reemplaza la versión i3lock (que no funciona en Wayland).
+#  - swaylock-effects con screenshots + blur real
+#  - grim para captura
+#  - wallpaper del rice activo o blur de pantalla
+# =============================================================
+
+set -euo pipefail
+
+CFG="$HOME/.config/swaylock/config"
+TEMP_IMAGE="/tmp/swaylock-current.jpg"
+
+# Rice activo: lee de hypr/.rice (primario), fallback a bspwm/.rice
+RICE_FILE="$HOME/.config/hypr/.rice"
+[ -f "$RICE_FILE" ] || RICE_FILE="$HOME/.config/bspwm/.rice"
+RICE=$(cat "$RICE_FILE" 2>/dev/null || echo "emilia")
+
+# Detecta primer monitor
+OUTPUT=$(hyprctl monitors -j 2>/dev/null | jq -r '.[0].name // empty' || true)
+
+# ── Lock con wallpaper del rice activo ──
+rice_lockscreen() {
+    local image_dir="$HOME/.config/hypr/rices/$RICE/walls"
+    [ -d "$image_dir" ] || image_dir="$HOME/.config/bspwm/rices/$RICE/walls"
+    [ -d "$image_dir" ] || { default_lockscreen; return; }
+
+    local lock_image
+    lock_image=$(find "$image_dir" -type f \
+        \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.webp" \) \
+        2>/dev/null | shuf -n 1)
+
+    if [ -z "$lock_image" ]; then
+        default_lockscreen
+        return
+    fi
+
+    case "$lock_image" in
+        *.webp)
+            magick "$lock_image" "$TEMP_IMAGE" 2>/dev/null \
+                || cp "$lock_image" "$TEMP_IMAGE" 2>/dev/null \
+                || default_lockscreen
+            ;;
+        *.png)
+            magick "$lock_image" -quality 90 "$TEMP_IMAGE" 2>/dev/null \
+                || cp "$lock_image" "$TEMP_IMAGE" 2>/dev/null
+            ;;
+        *)
+            cp "$lock_image" "$TEMP_IMAGE" 2>/dev/null
+            ;;
+    esac
+
+    [ -f "$TEMP_IMAGE" ] || { default_lockscreen; return; }
+    exec swaylock -f -C "$CFG" -i "$TEMP_IMAGE"
+}
+
+# ── Lock con blur de pantalla actual ──
+default_lockscreen() {
+    if command -v grim >/dev/null 2>&1; then
+        if [ -n "$OUTPUT" ]; then
+            grim -o "$OUTPUT" "$TEMP_IMAGE" 2>/dev/null || true
+        else
+            grim "$TEMP_IMAGE" 2>/dev/null || true
+        fi
+    fi
+
+    if [ -f "$TEMP_IMAGE" ] && command -v magick >/dev/null 2>&1; then
+        magick "$TEMP_IMAGE" -blur 8x6 "$TEMP_IMAGE" 2>/dev/null || true
+    fi
+
+    if [ ! -f "$TEMP_IMAGE" ]; then
+        # Sin captura: swaylock con color sólido
+        exec swaylock -f -C "$CFG"
+    fi
+    exec swaylock -f -C "$CFG" -i "$TEMP_IMAGE"
+}
+
+# ── Entry point ──
+case "${1:-}" in
+    -r|--rice) rice_lockscreen ;;
+    -h|--help)
+        cat <<EOF
+ScreenLocker [opciones]
+  -r, --rice    wallpaper del rice activo
+  (sin arg)     blur de la pantalla actual
+EOF
+        ;;
+    *) default_lockscreen ;;
+esac

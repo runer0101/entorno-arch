@@ -1,0 +1,179 @@
+#!/bin/bash
+# =============================================================
+#  RofiPass — Gestor de contraseñas (Wayland/Hyprland)
+#  Auto-type vía wtype cuando está disponible.
+#  Fallback seguro: wl-copy con clear explícito (15s) si wtype no está.
+#  Defensive: valida nombres contra path traversal.
+# =============================================================
+
+set -euo pipefail
+
+typeit=0
+if [ "${1:-}" = "--type" ]; then
+    typeit=1
+    shift
+fi
+
+WOFI_STYLE="$HOME/.config/wofi/style.css"
+
+# ── Helpers ───────────────────────────────────────────────
+notify() {
+    if command -v makoctl >/dev/null 2>&1; then
+        makoctl replace -t 3000 "Pass" "$1" 2>/dev/null
+    elif command -v notify-send >/dev/null 2>&1; then
+        notify-send "Pass" "$1" 2>/dev/null
+    fi
+}
+
+# ── Validación defensiva de nombres ───────────────────────
+# pass permite / como jerarquía, pero bloqueamos .. y caracteres raros
+validate_name() {
+    case "$1" in
+        *..*|*\\*|*\$\(*|*\`*|*\<*|*\>*|*\|*|*\?*|*\**)
+            return 1 ;;
+        '') return 1 ;;
+    esac
+    return 0
+}
+
+# ── Auto-type: usa wtype si está, sino fallback a clipboard con clear
+auto_type() {
+    local uname="$1" passw="$2" service="$3"
+    if command -v wtype >/dev/null 2>&1; then
+        sleep 0.3
+        wtype "$uname" 2>/dev/null
+        wtype -k Tab 2>/dev/null
+        wtype "$passw" 2>/dev/null
+        notify "Autocompleted $service"
+    elif command -v ydotool >/dev/null 2>&1; then
+        sleep 0.3
+        ydotool type -- "$uname"
+        ydotool key Tab
+        ydotool type -- "$passw"
+        notify "Autocompleted $service"
+    else
+        # Fallback: clipboard con clear explícito a 15s
+        printf "%s" "$passw" | wl-copy
+        notify "$service: password copiada (sin wtype). Limpiando en 15s..."
+        ( sleep 15 && wl-copy "" 2>/dev/null ) &
+        disown
+    fi
+}
+
+main_action=$(printf "Show passwords\nAdd new" | wofi --dmenu --prompt "Pass" --style "$WOFI_STYLE" 2>/dev/null)
+[ -n "$main_action" ] || exit 0
+
+# ── Add new ────────────────────────────────────────────────
+if [ "$main_action" = "Add new" ]; then
+    new_name=$(wofi --dmenu --prompt "Service name" --style "$WOFI_STYLE" \
+        --mesg "Write the name, how you will identify the service/platform/account.
+This will automatically generate a 20-character password with symbols.
+Example: Netflix" 2>/dev/null)
+    [ -n "$new_name" ] || exit 0
+
+    if ! validate_name "$new_name"; then
+        notify "Nombre inválido: caracteres no permitidos"
+        exit 1
+    fi
+
+    if ! pass generate --clip "$new_name" 20; then
+        notify "Error generating password"
+        exit 1
+    fi
+    notify "A random 20-character password has been created for $new_name"
+
+    # "No" primero para que quede seleccionado: Enter sin mirar no añade nada
+    add_user=$(printf "No\nYes" | wofi --dmenu --prompt "Add user?" --style "$WOFI_STYLE" \
+        --mesg "Select if you want to add an username or email for $new_name" 2>/dev/null)
+    [ "$add_user" = "Yes" ] || exit 0
+
+    user_input=$(wofi --dmenu --prompt "Username/email" --style "$WOFI_STYLE" \
+        --mesg "Type the username or email" 2>/dev/null)
+    [ -n "$user_input" ] || exit 0
+
+    tmpfile="$(mktemp)"
+    pass show "$new_name" > "$tmpfile"
+    printf "Username: %s\n" "$user_input" >> "$tmpfile"
+    pass insert -m -f "$new_name" < "$tmpfile"
+    rm -f "$tmpfile"
+
+    notify "User added $user_input to $new_name"
+    exit 0
+fi
+
+# ── Show passwords ─────────────────────────────────────────
+prefix="${PASSWORD_STORE_DIR:-$HOME/.password-store}"
+if [ ! -d "$prefix" ]; then
+    notify "Password store no existe. Inicializa con: pass init <gpg-id>"
+    exit 1
+fi
+
+password_files=""
+while IFS= read -r file; do
+    path="${file#"$prefix"/}"
+    path="${path%.gpg}"
+    password_files="${password_files}${path}\n"
+done < <(find "$prefix" -type f -name '*.gpg' 2>/dev/null | sort)
+
+password=$(printf "%b" "$password_files" | wofi --dmenu --prompt "Select password" --style "$WOFI_STYLE" 2>/dev/null)
+[ -n "$password" ] || exit 0
+
+if ! validate_name "$password"; then
+    notify "Entrada inválida seleccionada"
+    exit 1
+fi
+
+if [ "$typeit" -eq 1 ]; then
+    # --type desde CLI: auto-type directo
+    passw=$(pass show "$password" | head -n1)
+    uname=$(pass show "$password" | tail -n1)
+    auto_type "$uname" "$passw" "$password"
+    exit 0
+fi
+
+action=$(printf "Copy\nEdit\nDelete\nAuto type" | wofi --dmenu --prompt "$password" --style "$WOFI_STYLE" 2>/dev/null)
+[ -n "$action" ] || exit 0
+
+case "$action" in
+    Copy)
+        copy_what=$(printf "Password\nUser" | wofi --dmenu --prompt "What to copy?" --style "$WOFI_STYLE" 2>/dev/null)
+        case "$copy_what" in
+            Password)
+                pass show -c "$password" >/dev/null 2>&1
+                notify "Password copied to clipboard (clears in 45s)"
+                ;;
+            User)
+                user_line=$(pass show "$password" | grep -i '^username:')
+                user_value=$(printf "%s" "$user_line" | cut -d':' -f2- | sed 's/^ *//')
+                if [ -n "$user_value" ]; then
+                    printf "%s" "$user_value" | wl-copy
+                    notify "Username copied to clipboard"
+                else
+                    notify "No username found for $password"
+                fi
+                ;;
+            *) exit 0 ;;
+        esac
+        ;;
+    Edit)
+        # EDITOR wayland: preferir gedit/geany, fallback a vim
+        EDITOR="${EDITOR:-geany}" pass edit "$password" ;;
+    Delete)
+        # Mismo diálogo que el menú de energía: el aviso es un cuadro aparte
+        # no clicable y "Cancelar" queda seleccionado por defecto. Antes era un
+        # wofi con "Yes" primero, así que un Enter sin mirar borraba la clave.
+        if "$HOME/scripts/confirm-dialog.sh" \
+                "Borrar contraseña" \
+                "Se elimina «$password» del almacén de pass. Esto no se puede deshacer." \
+                "Sí, borrar"; then
+            pass rm -f "$password"
+            notify "Password deleted"
+        fi
+        ;;
+    "Auto type")
+        passw=$(pass show "$password" | head -n1)
+        uname=$(pass show "$password" | tail -n1)
+        auto_type "$uname" "$passw" "$password"
+        ;;
+    *) exit 0 ;;
+esac

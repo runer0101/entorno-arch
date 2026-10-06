@@ -1,0 +1,121 @@
+#!/bin/bash
+# =============================================================
+#  rofi-bluetooth — Gestor bluetooth (Wayland/Hyprland)
+#  Migrado: usa wofi en vez de rofi, bluetoothctl puro.
+# =============================================================
+
+WOFI_STYLE="$HOME/.config/wofi/style.css"
+
+notify() {
+    notify-send "Bluetooth" "$1" 2>/dev/null
+}
+
+# Detectar si bluetooth está activo
+bt_check() {
+    if ! command -v bluetoothctl >/dev/null 2>&1; then
+        notify "bluetoothctl no instalado"
+        exit 1
+    fi
+    if ! systemctl is-active --quiet bluetooth 2>/dev/null; then
+        notify "Servicio bluetooth no está activo"
+        exit 1
+    fi
+}
+
+bt_check
+
+# ¿Está encendido?
+power_state=$(bluetoothctl show 2>/dev/null | awk '/Powered:/{print $2}')
+
+# Dispositivos emparejados
+paired=$(bluetoothctl paired-devices 2>/dev/null | awk '{print $2 "\t" substr($0, index($0,$3))}')
+
+# Construir menú
+menu=""
+
+if [ "$power_state" = "yes" ]; then
+    menu="  Turn Bluetooth off
+ Scan for devices
+ Paired devices
+"
+    # Dispositivos emparejados (solo nombres, no MACs)
+    if [ -n "$paired" ]; then
+        menu="${menu}$(echo "$paired" | cut -f2 | awk '{print "  Connect: " $0 "\n  Remove:  " $0 "\n"}')"
+    fi
+else
+    menu="  Turn Bluetooth on
+"
+fi
+
+# Si está escaneando, agregar discovered
+if [ "$power_state" = "yes" ]; then
+    discovered=$(timeout 5 bluetoothctl devices 2>/dev/null | awk '{print $2 "\t" substr($0, index($0,$3))}' | grep -v "^$(echo "$paired" | cut -f1 | head -100)")
+    if [ -n "$discovered" ]; then
+        menu="${menu}$(echo "$discovered" | cut -f2 | awk '{print "  Pair:   " $0 "\n  Connect: " $0 "\n"}')"
+    fi
+fi
+
+selected=$(printf "%s\n  ✖ Salir del menú\n" "$menu" | wofi --dmenu --prompt "Bluetooth" --style "$WOFI_STYLE" 2>/dev/null)
+[ -n "$selected" ] || exit 0
+case "$selected" in *"Salir"*) exit 0 ;; esac
+
+# Limpiar prefijo
+cmd=$(printf "%s" "$selected" | sed 's/^ *//')
+
+# Helpers
+bt_power() {
+    if [ "$1" = "on" ]; then
+        bluetoothctl power on >/dev/null 2>&1
+        notify "Bluetooth on"
+    else
+        bluetoothctl power off >/dev/null 2>&1
+        notify "Bluetooth off"
+    fi
+}
+
+bt_scan() {
+    notify "Scanning..."
+    bluetoothctl scan on >/dev/null 2>&1 &
+    sleep 4
+    kill %1 2>/dev/null
+    notify "Scan complete"
+}
+
+# Parsear selección
+case "$cmd" in
+    "Turn Bluetooth on")
+        bt_power on ;;
+    "Turn Bluetooth off")
+        bt_power off ;;
+    "Scan for devices")
+        bt_scan ;;
+    Connect:*)
+        name="${cmd#Connect: }"
+        mac=$(echo "$paired" | grep -F "$name" | cut -f1 | head -1)
+        [ -z "$mac" ] && mac=$(bluetoothctl devices 2>/dev/null | grep -F " $name" | awk '{print $2}' | head -1)
+        if [ -n "$mac" ]; then
+            bluetoothctl connect "$mac" 2>/dev/null
+            notify "Connected: $name"
+        else
+            notify "Device not found: $name"
+        fi
+        ;;
+    Pair:*)
+        name="${cmd#Pair: }"
+        mac=$(bluetoothctl devices 2>/dev/null | grep -F " $name" | awk '{print $2}' | head -1)
+        if [ -n "$mac" ]; then
+            bluetoothctl pair "$mac" 2>/dev/null
+            bluetoothctl trust "$mac" 2>/dev/null
+            bluetoothctl connect "$mac" 2>/dev/null
+            notify "Paired + connected: $name"
+        fi
+        ;;
+    Remove:*)
+        name="${cmd#Remove: }"
+        mac=$(echo "$paired" | grep -F "$name" | cut -f1 | head -1)
+        if [ -n "$mac" ]; then
+            bluetoothctl remove "$mac" 2>/dev/null
+            notify "Removed: $name"
+        fi
+        ;;
+esac

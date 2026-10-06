@@ -1,0 +1,64 @@
+#!/bin/bash
+# avd: lanza el AVD saint_avd (enciende containerd si hace falta) y limpia todo al salir.
+
+set -u
+export ANDROID_HOME=__HOME__/android-sdk
+export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH
+
+AVD=saint_avd
+RAM_MB=3072
+LOG=/tmp/avd.log
+CTD_PID=""
+
+cleanup() {
+    echo
+    echo "avd: cerrando emulador y procesos asociados..."
+    pkill -f "emulator.*${AVD}" 2>/dev/null
+    $ANDROID_HOME/platform-tools/adb -s emulator-5554 emu kill 2>/dev/null
+    pkill -f "qemu-system-x86_64" 2>/dev/null
+    pkill -f "containerd-shim" 2>/dev/null
+    pkill -9 -f "/usr/bin/waydroid" 2>/dev/null
+    pkill -9 -f "dnsmasq.*waydroid0" 2>/dev/null
+    sudo -n systemctl kill waydroid-container.service 2>/dev/null
+    if [ -n "$CTD_PID" ] && kill -0 "$CTD_PID" 2>/dev/null; then
+        kill "$CTD_PID" 2>/dev/null
+    fi
+    sleep 1
+    pgrep -af "emulator|qemu-system|containerd|waydroid" | grep -v grep | head -5
+    echo "avd: listo."
+}
+trap cleanup EXIT INT TERM
+
+if $ANDROID_HOME/platform-tools/adb devices 2>/dev/null | grep -q "emulator-"; then
+    echo "avd: ya hay un emulador corriendo, entrando al shell."
+    exec $ANDROID_HOME/platform-tools/adb shell
+fi
+
+if ! pgrep -x containerd >/dev/null; then
+    echo "avd: arrancando containerd..."
+    nohup containerd > /tmp/containerd.log 2>&1 &
+    CTD_PID=$!
+    sleep 1
+fi
+
+echo "avd: iniciando ${AVD} (${RAM_MB}MB)..."
+nohup $ANDROID_HOME/emulator/emulator -avd "$AVD" -memory "$RAM_MB" -no-snapshot -no-boot-anim > "$LOG" 2>&1 &
+EMU_PID=$!
+
+echo "avd: esperando boot completo (Ctrl+C aquí cierra todo)..."
+ADB=$ANDROID_HOME/platform-tools/adb
+for i in $(seq 1 180); do
+    if ! kill -0 "$EMU_PID" 2>/dev/null; then
+        echo "avd: el emulador murió. Mira $LOG"
+        exit 1
+    fi
+    boot=$($ADB -s emulator-5554 shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
+    if [ "$boot" = "1" ]; then
+        echo "avd: Android listo tras ${i}s"
+        break
+    fi
+    sleep 1
+done
+
+$ADB -s emulator-5554 wait-for-device
+exec $ADB -s emulator-5554 shell

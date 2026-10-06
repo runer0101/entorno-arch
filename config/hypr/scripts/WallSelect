@@ -1,0 +1,69 @@
+#!/bin/bash
+# =============================================================
+#  WallSelect — Selector de wallpaper (Wayland/Hyprland)
+#  Migrado: usa wofi en vez de rofi, awww/swww en vez de feh.
+# =============================================================
+
+WOFI_STYLE="$HOME/.config/wofi/style.css"
+
+# Detectar comando
+SWWW=""
+if command -v awww >/dev/null 2>&1; then
+    SWWW="awww"
+elif command -v swww >/dev/null 2>&1; then
+    SWWW="swww"
+else
+    notify-send "Wallpaper" "Ni awww ni swww instalados" 2>/dev/null
+    exit 1
+fi
+
+read -r current_rice < "$HOME/.config/hypr/.rice"
+wall_dir="$HOME/.config/hypr/rices/$current_rice/walls"
+persistent="$HOME/.cache/current_wallpaper"
+
+[ -d "$wall_dir" ] || { notify-send "Wallpaper" "Sin wallpapers en $wall_dir" 2>/dev/null; exit 1; }
+
+# Listar wallpapers (sin extensión en el menú)
+list=$(find "$wall_dir" -maxdepth 1 -type f \
+    \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.webp" \) \
+    2>/dev/null | sort | while read -r f; do
+    name=$(basename "$f")
+    # Marca si es el actual
+    [ -f "$persistent" ] && [ "$(cat "$persistent" 2>/dev/null)" = "$f" ] && prefix=" * " || prefix="   "
+    printf "%s%s\n" "$prefix" "$name"
+done)
+
+# Marcar actual
+selected=$(printf "%s\n   ✖  Salir del menú\n" "$list" \
+    | wofi --dmenu \
+           --prompt "Wallpaper ($current_rice)" \
+           --style "$WOFI_STYLE" 2>/dev/null)
+
+[ -n "$selected" ] || exit 0
+case "$selected" in *"Salir"*) exit 0 ;; esac
+
+# Limpiar prefijo
+clean_name=$(printf "%s" "$selected" | sed 's/^[* ]*//')
+img="$wall_dir/$clean_name"
+
+if [ ! -f "$img" ]; then
+    notify-send "Wallpaper" "No existe: $img" 2>/dev/null
+    exit 1
+fi
+
+# Esperar daemon
+for i in 1 2 3 4 5; do
+    $SWWW query >/dev/null 2>&1 && break
+    sleep 0.5
+done
+
+$SWWW img "$img" \
+    --transition-type grow \
+    --transition-pos center \
+    --transition-step 90 \
+    --transition-fps 60 \
+    --transition-duration 1 \
+    --transition-bezier 0.23,1,0.32,1 2>/dev/null
+
+echo "$img" > "$persistent"
+notify-send "Wallpaper" "Aplicado: $clean_name" 2>/dev/null

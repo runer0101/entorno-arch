@@ -1,0 +1,46 @@
+#!/bin/bash
+# =============================================================
+#  KeyBoardL — Selector de layout de teclado (Wayland)
+#  Usa wofi en vez de rofi, hyprctl switchxkblayout en vez
+#  de setxkbmap (sin tocar X11).
+# =============================================================
+
+WOFI_STYLE="$HOME/.config/wofi/style.css"
+
+notify() {
+    notify-send "Keyboard" "$1" 2>/dev/null
+}
+
+# Layouts disponibles (idéntico al original)
+LAYOUTS="US English|us
+ES América Latina|latam
+ES España|es
+FR France|fr
+DE Deutschland|de
+RU Россия|ru
+IT Italia|it
+PT Brasil|br"
+
+# Layout actual via hyprctl
+CURRENT=$(hyprctl devices -j 2>/dev/null \
+    | jq -r '.keyboards[] | select(.main == true) | .active_keymap' 2>/dev/null \
+    | head -1)
+[ -z "$CURRENT" ] && CURRENT="unknown"
+
+show_wofi_menu() {
+    printf '%s\n' "$LAYOUTS" | cut -d'|' -f1 \
+        | wofi --dmenu \
+               --prompt "Keyboard Layout" \
+               --style "$WOFI_STYLE" \
+               --mesg "Current: $CURRENT" 2>/dev/null
+}
+
+selected=$(show_wofi_menu)
+if [ -n "$selected" ]; then
+    layout_code=$(printf '%s\n' "$LAYOUTS" | awk -F'|' -v sel="$selected" '$1 == sel {print $2}')
+    if [ -n "$layout_code" ]; then
+        # Layout principal (keyboard main)
+        hyprctl switchxkblayout main "$layout_code" 2>/dev/null
+        notify "Layout: $selected ($layout_code)"
+    fi
+fi

@@ -1,0 +1,45 @@
+#!/bin/bash
+# Módulo waybar: uso de CPU en la barra + cuadro (modelo, frecuencia,
+# carga, temperatura y procesos que más consumen) en el tooltip.
+read -r _ u1 n1 s1 i1 w1 irq1 sirq1 _ < /proc/stat
+sleep 0.3
+read -r _ u2 n2 s2 i2 w2 irq2 sirq2 _ < /proc/stat
+
+idle1=$((i1 + w1)); idle2=$((i2 + w2))
+total1=$((u1+n1+s1+i1+w1+irq1+sirq1))
+total2=$((u2+n2+s2+i2+w2+irq2+sirq2))
+totald=$((total2 - total1)); idled=$((idle2 - idle1))
+[ "$totald" -le 0 ] && totald=1
+usage=$(( (100 * (totald - idled)) / totald ))
+
+icon="󰍛"
+text="<span font='JetBrainsMono Nerd Font' color='#f7768e'>${icon} ${usage}%</span>"
+
+# ── Datos para el tooltip ──
+model=$(grep -m1 'model name' /proc/cpuinfo | sed -E 's/.*: //; s/AMD //; s/ w\/.*//; s/ [0-9]+-Core.*//')
+cores=$(awk -F: '/cpu cores/{print $2; exit}' /proc/cpuinfo | tr -d ' ')
+threads=$(nproc)
+freq=$(awk '/cpu MHz/{s+=$4;n++} END{printf "%d", s/n}' /proc/cpuinfo)
+load=$(cut -d' ' -f1-3 /proc/loadavg)
+temp=$(sensors -j 2>/dev/null | jq -r '.["k10temp-pci-00c3"].Tctl.temp1_input // empty' | cut -d. -f1)
+
+col_for() { if [ "$1" -lt 60 ]; then echo "#9ece6a"; elif [ "$1" -lt 85 ]; then echo "#e0af68"; else echo "#f7768e"; fi; }
+ucol=$(col_for "$usage")
+
+nl=$'\n'
+row() { local pad=$((11 - ${#1})); [ "$pad" -lt 1 ] && pad=1; printf ' %s%*s%s' "$1" "$pad" '' "$2"; }
+
+tt="<span foreground='${ucol}'><b> CPU  ${usage}%</b></span>${nl}"
+tt+="<span foreground='#565f89'>──────────────────────────</span>${nl}"
+tt+="$(row 'Modelo' "$model")${nl}"
+tt+="$(row 'Núcleos' "${cores} · ${threads} hilos")${nl}"
+tt+="$(row 'Frecuencia' "${freq} MHz")${nl}"
+[ -n "$temp" ] && tt+="$(row 'Temp' "<span foreground='$(col_for "$temp")'>${temp}°C</span>")${nl}"
+tt+="$(row 'Carga' "$load")${nl}"
+tt+="<span foreground='#565f89'>──── lo que más usa el CPU ────</span>${nl}"
+while read -r pcpu comm; do
+    tt+="$(row " ${comm:0:14}" "<span foreground='#f7768e'>${pcpu}%</span>")${nl}"
+done < <(ps -eo %cpu,comm --sort=-%cpu --no-headers | head -3)
+tooltip="<span font_family='JetBrainsMono Nerd Font'>${tt%${nl}}</span>"
+
+jq -nc --arg text "$text" --arg tooltip "$tooltip" '{text:$text, tooltip:$tooltip, class:""}'

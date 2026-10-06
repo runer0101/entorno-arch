@@ -1,0 +1,57 @@
+/* =============================================================
+   swayosd — emilia rice (Tokyo Night)
+   CSS plano (swayosd NO soporta SCSS)
+   ============================================================= */
+
+window#osd {
+    background-color: #1a1b26;
+    border: 2px solid #7aa2f7;
+    border-radius: 14px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+}
+
+window#osd #container {
+    margin: 14px 18px;
+}
+
+window#osd image,
+window#osd label {
+    color: #c0caf5;
+}
+
+window#osd progressbar:disabled,
+window#osd image:disabled {
+    opacity: 0.5;
+}
+
+window#osd progressbar,
+window#osd segmentedprogress {
+    min-height: 8px;
+    border-radius: 999px;
+    background: transparent;
+    border: none;
+}
+
+window#osd progressbar trough,
+window#osd segmentedprogress segment {
+    min-height: inherit;
+    border-radius: inherit;
+    border: none;
+    background-color: #414868;
+}
+
+window#osd progressbar progress,
+window#osd segmentedprogress segment.active {
+    min-height: inherit;
+    border-radius: inherit;
+    border: none;
+    background-color: #7aa2f7;
+}
+
+window#osd segmentedprogress segment {
+    margin-left: 8px;
+}
+
+window#osd segmentedprogress segment:first-child {
+    margin-left: 0;
+}

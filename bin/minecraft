@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# minecraft — launch Minecraft on the NVIDIA dGPU using a portable Java 21 LTS
+# Works around: system Java broken, AUR install needs sudo.
+set -euo pipefail
+
+# --- Locate resources --------------------------------------------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+JAVA_HOME_DEFAULT="$HOME/.local/jdk"
+LAUNCHER_DEFAULT="$HOME/Applications/minecraft/usr/bin/minecraft-launcher"
+MESA_VK_DEFAULT=""
+
+# IMPORTANT: do NOT export _JAVA_OPTIONS / JDK_JAVA_OPTIONS from here.
+# The official Mojang launcher already passes its own GC flags to the JVM
+# (e.g. -XX:+UseG1GC). Combining ours with theirs triggers:
+#   "Error occurred during initialization of VM: Multiple garbage collectors selected"
+# and the game dies immediately. Configure RAM/GC from the launcher UI instead.
+
+JAVA_HOME="${JAVA_HOME:-$JAVA_HOME_DEFAULT}"
+LAUNCHER="${MINECRAFT_LAUNCHER:-$LAUNCHER_DEFAULT}"
+
+# Allow overriding the Java path with the first CLI argument
+if [[ "${1:-}" == "--java="* ]]; then
+  JAVA_HOME="${1#--java=}"
+  shift
+fi
+
+# --- Sanity checks -----------------------------------------------------------
+[[ -x "$JAVA_HOME/bin/java" ]]  || { echo "✗ No encuentro java en $JAVA_HOME/bin/java"; exit 1; }
+[[ -x "$LAUNCHER" ]]           || { echo "✗ No encuentro el launcher en $LAUNCHER"; exit 1; }
+[[ -x /usr/bin/prime-run ]]    || { echo "✗ prime-run no disponible — instala nvidia-prime"; exit 1; }
+
+# --- Environment for the game ------------------------------------------------
+export JAVA_HOME
+export PATH="$JAVA_HOME/bin:$PATH"
+
+# Tell GLFW/LWJGL3 to prefer Wayland if available, fall back to X11
+export SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-x11}"
+
+# 7 GiB total RAM; reserve ~1 GiB for the system + desktop.
+# We keep MC_RAM as a hint variable so other wrappers (e.g. minecraft-modded)
+# can still override the heap, but we do NOT export it as a JVM option from
+# this script — see the note at the top about GC flag collisions.
+RAM_ARG="${MC_RAM:-2G}"
+
+# Use the discrete NVIDIA GPU through prime-run
+exec /usr/bin/prime-run "$LAUNCHER" "$@"

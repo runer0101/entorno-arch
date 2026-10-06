@@ -1,0 +1,153 @@
+#!/bin/bash
+# =============================================================
+#  ScreenShoTer — Captura de pantalla (Wayland/Hyprland)
+#  grim + slurp + wl-copy, con la pantalla CONGELADA.
+#
+#  Por qué el freeze: el menú de wofi roba el foco, y con él se cierran
+#  tooltips (p. ej. el de red en waybar), menús y popups — justo lo que
+#  normalmente quieres capturar. Así que lo primero que hace el script,
+#  antes de dibujar nada, es fotografiar la pantalla y dejar esa foto
+#  encima con hyprpicker -z. El menú y la selección de región ocurren
+#  sobre la imagen congelada, y todos los recortes salen de ella: lo que
+#  ves al pulsar PrtSc es exactamente lo que se guarda.
+# =============================================================
+
+WOFI_STYLE="$HOME/.config/wofi/style.css"
+
+dir="$HOME/Pictures/Screenshots"
+[ -d "$dir" ] || mkdir -p "$dir"
+timestamp=$(date +%Y-%m-%d-%H%M%S)
+filename="$dir/Shot-${timestamp}.png"
+
+tmpdir=$(mktemp -d "${XDG_RUNTIME_DIR:-/tmp}/screenshoter.XXXXXX")
+frozen="$tmpdir/frozen.png"
+picker=""
+
+unfreeze() {
+    [ -n "$picker" ] && kill "$picker" 2>/dev/null
+    picker=""
+}
+cleanup() { unfreeze; rm -rf "$tmpdir"; }
+trap cleanup EXIT INT TERM
+
+# ── 1. Congelar cuanto antes ──────────────────────────────────
+# grim primero (la pantalla real, con el tooltip aún vivo) y el overlay
+# después: son ~100 ms y el puntero no se ha movido todavía.
+grim "$frozen" 2>/dev/null || { notify-send "Screenshot" "grim falló"; exit 1; }
+if command -v hyprpicker >/dev/null 2>&1; then
+    hyprpicker -r -z >/dev/null 2>&1 &
+    picker=$!
+fi
+
+notify() {
+    if command -v notify-send >/dev/null 2>&1; then
+        notify-send -t 3000 "Screenshot" "$1" 2>/dev/null
+    fi
+}
+
+take() {
+    local out="$1"
+    if [ -n "$out" ] && [ -f "$out" ]; then
+        wl-copy < "$out"
+        notify "Guardada + copiada: $(basename "$out")"
+    else
+        notify "Cancelada"
+    fi
+}
+
+# Recorta de la imagen congelada. slurp da coordenadas LÓGICAS del
+# compositor y grim escribe PÍXELES físicos, así que se calcula el factor
+# comparando el ancho real del PNG con el ancho lógico del conjunto de
+# monitores; el origen del PNG es la esquina superior izquierda del layout,
+# que con un monitor a la izquierda del 0,0 no es (0,0).
+crop_frozen() {
+    local geom="$1" out="$2"
+    local x y w h ox oy factor
+    x=${geom%%,*}; geom=${geom#*,}
+    y=${geom%% *}; geom=${geom#* }
+    w=${geom%%x*}; h=${geom#*x}
+
+    read -r ox oy factor < <(
+        hyprctl -j monitors 2>/dev/null | jq -r --argjson iw "$(magick identify -format '%w' "$frozen")" '
+            [.[] | {x, y, r: (.x + .width / .scale), b: (.y + .height / .scale)}] as $m
+            | ([$m[].x] | min) as $ox
+            | ([$m[].y] | min) as $oy
+            | (($m | map(.r) | max) - $ox) as $lw
+            | "\($ox) \($oy) \(if $lw > 0 then $iw / $lw else 1 end)"'
+    )
+    [ -n "$factor" ] || { ox=0; oy=0; factor=1; }
+
+    read -r cw ch cx cy < <(awk -v x="$x" -v y="$y" -v w="$w" -v h="$h" \
+        -v ox="$ox" -v oy="$oy" -v f="$factor" \
+        'BEGIN{printf "%d %d %d %d", w*f, h*f, (x-ox)*f, (y-oy)*f}')
+    magick "$frozen" -crop "${cw}x${ch}+${cx}+${cy}" +repage "$out" 2>/dev/null
+}
+
+run_menu() {
+    printf "󰍹  Pantalla completa\n󰆞  Región\n󰖯  Ventana\n󰍺  Todas las pantallas\n󰔛  Temporizador 3s\n✖  Salir\n" \
+        | wofi --dmenu \
+               --prompt "Captura" \
+               --style "$WOFI_STYLE" 2>/dev/null
+}
+
+do_full() {
+    # El monitor activo dentro de la foto ya congelada.
+    local geom
+    geom=$(hyprctl -j monitors 2>/dev/null \
+        | jq -r 'map(select(.focused))[0] | "\(.x),\(.y) \(.width / .scale | floor)x\(.height / .scale | floor)"')
+    if [ -n "$geom" ] && [ "$geom" != "null" ] && crop_frozen "$geom" "$filename"; then
+        take "$filename"
+    else
+        do_all
+    fi
+}
+
+do_region() {
+    local geom
+    # slurp dibuja sobre la imagen congelada: seleccionas viendo el tooltip.
+    geom=$(slurp 2>/dev/null) || { notify "Cancelada"; return 1; }
+    crop_frozen "$geom" "$filename" && take "$filename"
+}
+
+do_window() {
+    local geom
+    geom=$(hyprctl -j activewindow 2>/dev/null \
+        | jq -r '"\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])"' 2>/dev/null)
+    if [ -n "$geom" ] && [ "$geom" != " 0x0" ]; then
+        crop_frozen "$geom" "$filename" && take "$filename"
+    else
+        do_region
+    fi
+}
+
+do_all() {
+    cp "$frozen" "$filename" && take "$filename"
+}
+
+do_timer() {
+    # Aquí el freeze estorba: se quiere lo que pase DESPUÉS de los 3 s.
+    unfreeze
+    notify "Captura en 3 s..."
+    sleep 3
+    grim "$filename" 2>/dev/null && take "$filename"
+}
+
+# Modo directo (sin menú), para atajos dedicados: --region, --full, etc.
+case "$1" in
+    --full)   do_full;   exit ;;
+    --region) do_region; exit ;;
+    --window) do_window; exit ;;
+    --all)    do_all;    exit ;;
+    --timer)  do_timer;  exit ;;
+esac
+
+opt=$(run_menu)
+[ -n "$opt" ] || exit 0
+
+case "$opt" in
+    *"Pantalla completa")   do_full ;;
+    *"Región")              do_region ;;
+    *"Ventana")             do_window ;;
+    *"Todas las pantallas") do_all ;;
+    *"Temporizador 3s")     do_timer ;;
+esac

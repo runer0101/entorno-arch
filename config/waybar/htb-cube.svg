@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <!-- Cubo isométrico de Hack The Box: hexágono + "Y" central -->
+  <g stroke="#9fef00" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round">
+    <!-- Hexágono exterior (pointy-top) -->
+    <path d="M16 2 L28.12 9 L28.12 23 L16 30 L3.88 23 L3.88 9 Z"/>
+    <!-- Aristas internas hacia el centro (las 3 caras visibles del cubo) -->
+    <path d="M16 16 L16 30"/>
+    <path d="M16 16 L28.12 9"/>
+    <path d="M16 16 L3.88 9"/>
+  </g>
+</svg>

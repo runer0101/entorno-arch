@@ -1,0 +1,98 @@
+/* =============================================================
+   wofi — estilo del gestor de red (NetManagerDM)
+   Basado en style.css (misma paleta pywal y acento @color9), pero
+   cada opción se dibuja como un BOTÓN con su propio borde.
+   Colores dinámicos: ~/.cache/wal/colors-waybar.css
+   ============================================================= */
+@import url('__HOME__/.cache/wal/colors-waybar.css');
+
+window {
+  margin: 0px;
+  background-color: transparent;
+  border: none;
+  font-family: "JetBrainsMono Nerd Font", monospace;
+  font-size: 14px;
+}
+
+/* Caja principal: píldora grande, igual que el estilo base */
+#outer-box {
+  margin: 0px;
+  border: 2px solid @color9;
+  border-radius: 16px;
+  background-color: alpha(@background, 0.98);
+  padding: 12px;
+}
+
+#input {
+  margin: 4px 4px 10px 4px;
+  border: 2px solid @color9;
+  border-radius: 12px;
+  color: @foreground;
+  background-color: alpha(@color9, 0.12);
+  padding: 8px 12px;
+  outline: none;
+  box-shadow: none;
+  caret-color: @color9;
+}
+#input:focus { border: 2px solid @color9; }
+#input image { color: @color9; }
+#prompt { color: @foreground; margin-right: 6px; }
+
+#text {
+  margin: 0px 6px;
+  border: none;
+  color: @foreground;
+  background-color: transparent;
+}
+
+/* Cada opción = BOTÓN con su borde */
+#entry {
+  padding: 10px 12px;
+  margin: 4px 2px;
+  border: 1px solid alpha(@color9, 0.40);
+  border-radius: 12px;
+  background-color: alpha(@color9, 0.06);
+}
+
+#entry:selected {
+  background-color: @color9;
+  border: 1px solid @color9;
+  border-radius: 12px;
+  outline: none;
+}
+
+#entry:selected #text {
+  font-weight: bold;
+  color: @background;
+  background-color: transparent;
+}
+
+#entry:selected * {
+  background-color: transparent;
+  color: @background;
+}
+
+#entry:hover {
+  background-color: alpha(@color9, 0.22);
+  border: 1px solid @color9;
+  border-radius: 12px;
+}
+
+#img {
+  margin-right: 12px;
+  border-radius: 4px;
+  background-color: transparent;
+}
+
+#inner-box {
+  margin: 4px;
+  border: none;
+  padding: 4px;
+  background-color: transparent;
+}
+
+#scroll {
+  margin: 0px;
+  background-color: transparent;
+  border: none;
+}

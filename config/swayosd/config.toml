@@ -1,0 +1,28 @@
+# =============================================================
+# swayosd config — emilia rice
+# Override del /etc/xdg/swayosd/config.toml
+# =============================================================
+
+[server]
+# Estilo Tokyo Night (CSS plano)
+style = "__HOME__/.config/swayosd/style.css"
+
+# Posición vertical del OSD (0.0 = top, 1.0 = bottom)
+top_margin = 0.85
+
+# Volumen máximo permitido (%)
+max_volume = 150
+
+# Brillo mínimo (no apaga la pantalla)
+min_brightness = 5
+
+# Mostrar porcentaje a la derecha
+show_percentage = true
+
+# Formato del playerctl
+playerctl_format = "{artist} - {title}"
+
+# Auto-display cuando cambia el brillo del teclado
+keyboard_backlight = true
+
+[client]

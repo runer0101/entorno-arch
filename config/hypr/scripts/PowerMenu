@@ -1,0 +1,58 @@
+#!/bin/bash
+# =============================================================
+#  PowerMenu — Menú de energía (Wayland/Hyprland)
+#  Iconos Nerd Font (mismo set que el polybar emilia/X11)
+#  Opciones en español con iconos al frente
+# =============================================================
+
+WOFI_STYLE="$HOME/.config/wofi/style.css"
+
+notify() {
+    if command -v notify-send >/dev/null 2>&1; then
+        notify-send "Power" "$1" 2>/dev/null
+    fi
+}
+
+# Iconos MDI (Material Design Icons Desktop) del polybar emilia
+ICON_LOCK="󰌾"
+ICON_SUSPEND="󰑗"
+ICON_LOGOUT="󰍃"
+ICON_REBOOT="󰜉"
+ICON_SHUTDOWN="󰐥"
+ICON_CLOSE="✖"
+
+# Opciones con icono + texto (formato wofi dmenu)
+options="${ICON_LOCK}  Bloquear
+${ICON_SUSPEND}  Suspender
+${ICON_LOGOUT}  Cerrar sesión
+${ICON_REBOOT}  Reiniciar
+${ICON_SHUTDOWN}  Apagar
+${ICON_CLOSE}  Salir del menú"
+
+chosen=$(printf "%s\n" "$options" \
+    | wofi --dmenu \
+           --prompt "⏻ Energía · $(uptime -p | sed 's/up //')" \
+           --style "$WOFI_STYLE" 2>/dev/null)
+
+# Extrae solo la parte del texto (sin el icono) para matchear
+action=$(echo "$chosen" | sed -E 's/^[^ ]+\s+//')
+
+case "$action" in
+    "Bloquear")
+        notify "Bloqueando pantalla"
+        swaylock -f -C "$HOME/.config/swaylock/config"
+        ;;
+    "Suspender")
+        systemctl suspend
+        ;;
+    "Cerrar sesión")
+        notify "Cerrando sesión"
+        hyprctl dispatch exit
+        ;;
+    "Reiniciar")
+        systemctl reboot
+        ;;
+    "Apagar")
+        systemctl poweroff
+        ;;
+esac

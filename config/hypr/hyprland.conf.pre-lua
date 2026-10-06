@@ -1,0 +1,490 @@
+# =============================================================
+#  ██╗  ██╗██╗   ██╗██████╗ ██╗      █████╗ ███╗   ██╗██████╗
+#  ██║  ██║╚██╗ ██╔╝██╔══██╗██║     ██╔══██╗████╗  ██║██╔══██╗
+#  ███████║ ╚████╔╝ ██████╔╝██║     ███████║██╔██╗ ██║██║  ██║
+#  ██╔══██║  ╚██╔╝  ██╔═══╝ ██║     ██╔══██║██║╚██╗██║██║  ██║
+#  ██║  ██║   ██║   ██║     ██║     ██║  ██║██║ ╚████║██████╔╝
+#  ╚═╝  ╚═╝   ╚═╝   ╚═╝     ╚═╝     ╚═╝  ╚═╝╚═╝  ╚═══╝╚═════╝
+# Hyprland 0.55.4 — emilia rice (migración desde bspwm)
+# Sintaxis windowrulev2/layerrulev2, dwindle sin pseudotile
+# =============================================================
+
+# ---- Monitor ----
+monitor = ,preferred,auto,1
+monitor = HDMI-A-1,1920x1080@60,auto-right,1
+
+# ---- Colores dinámicos pywal (estilo By-LeyzS) ----
+# Regenerados por los scripts de wallpaper: wal -i <imagen>
+source = ~/.cache/wal/colors-hyprland.conf
+
+# ---- Env (NVIDIA hybrid + Qt/Wayland + cursors) ----
+# Perfil de GPU (hibrido = AMD+NVIDIA · movil = solo AMD para que la dGPU duerma).
+# Lo genera ~/scripts/gpu-perfil.sh; va lo primero porque aquamarine lee
+# AQ_DRM_DEVICES al arrancar el backend y después ya no hay marcha atrás.
+source = ~/.config/hypr/gpu-profile.conf
+env = WLR_NO_HARDWARE_CURSORS,1
+env = WLR_DRM_NO_ATOMIC,1
+env = XDG_CURRENT_DESKTOP,Hyprland
+env = XDG_SESSION_TYPE,wayland
+env = XDG_SESSION_DESKTOP,Hyprland
+env = QT_QPA_PLATFORM,wayland;xcb
+env = QT_WAYLAND_DISABLE_WINDOWDECORATION,1
+env = GDK_BACKEND,wayland,x11
+env = SDL_VIDEODRIVER,wayland
+env = _JAVA_AWT_WM_NONREPARENTING,1
+env = ELECTRON_OZONE_PLATFORM_HINT,wayland
+env = MOZ_ENABLE_WAYLAND,1
+env = XCURSOR_THEME,Qogirr-Dark
+env = XCURSOR_SIZE,24
+# PATH con scripts de Hyprland primero (migración bspwm → hypr)
+env = PATH,$HOME/.config/hypr/scripts:$HOME/.local/bin:$HOME/bin:/usr/local/bin:/usr/bin:/bin
+
+# ---- Autostart (orden: dbus → wallpaper daemon → UI) ----
+# Sincroniza variables de dbus con systemd user (necesario para gsettings en apply-gtk.sh)
+exec-once = dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP
+exec-once = nm-applet --indicator
+exec-once = /usr/lib/polkit-kde-authentication-agent-1
+exec-once = gnome-keyring-daemon --start --components=secrets,ssh
+exec-once = awww-daemon
+# Notificaciones
+# Vía systemd, no directo: la unidad trae Restart=on-failure, así que si swaync
+# segfaultea (pasó el 26 jul en un callback de PulseAudio) vuelve solo en ~2s.
+# Lanzado a pelo, systemd no lo posee y el módulo de waybar se queda muerto.
+exec-once = systemctl --user start swaync.service
+exec-once = clipcatd
+exec-once = GDK_BACKEND=wayland swayosd-server
+# OSD de la lupa: se ancla al cursor (swayosd se sale de la vista al ampliar)
+exec-once = ~/.config/hypr/scripts/zoom-osd.py
+# Idle/lock: hypridle + hyprlock (estilo LeyzS)
+exec-once = hypridle
+exec-once = ~/.config/hypr/scripts/wallpaper.sh 2>/dev/null
+exec-once = ~/.config/hypr/scripts/apply-gtk.sh 2>/dev/null
+# Adapta el perfil de GPU al enchufar/quitar la pantalla externa: deja escrito
+# el que tocará al próximo inicio y avisa solo cuando el cambio te afecta.
+exec-once = sleep 5 && ~/scripts/gpu-perfil-watch.sh
+# Aviso si el perfil guardado no encaja con lo enchufado. La reparación de
+# gpu-profile.conf NO va aquí: para eso ya es tarde (Hyprland ya arrancó), la
+# hace ~/.zprofile antes de lanzar la sesión.
+exec-once = sleep 6 && ~/scripts/gpu-perfil.sh notificar
+# El cable manda: enciende el HDMI al enchufarlo (aunque una regla vieja lo
+# dejara en "disable") y reenciende el portátil si quitas el cable estando en
+# modo "solo monitor". Ver ~/scripts/pantalla-watch.sh.
+exec-once = sleep 4 && ~/scripts/pantalla-watch.sh
+
+# Waybar estilo polybar emilia (gris, brackets, módulos custom)
+exec-once = waybar -c ~/.config/waybar/config.jsonc -s ~/.config/waybar/style.css
+# El contador de updates lo refresca ArchUpdates.timer (cada 15 min, enabled y
+# Persistent=true). Antes había además `exec-once = Updates --daemon`, que hacía
+# EXACTAMENTE lo mismo en un `while true; sleep 900`: duplicaba las consultas de
+# `checkupdates` y `paru -Qua` (esta última va por red a la RPC del AUR) y ambos
+# escribían Updates.txt sin bloqueo. El timer gana porque sobrevive a reinicios
+# de Hyprland y recupera las pasadas perdidas.
+
+# ---- Inputs ----
+input {
+    kb_layout = latam
+    follow_mouse = 1
+    touchpad {
+        natural_scroll = yes
+        tap-to-click = yes
+        disable_while_typing = yes
+    }
+    sensitivity = 0
+    accel_profile = flat
+}
+
+# ---- General (estilo By-LeyzS: bordes degradados desde el wallpaper) ----
+general {
+    gaps_in = 5
+    gaps_out = 20
+    border_size = 2
+    col.active_border = $color1 $color5 $color1 0deg
+    col.inactive_border = rgba(414868aa)
+    resize_on_border = true
+    layout = dwindle
+    allow_tearing = false
+}
+
+# ---- Decoration (estilo By-LeyzS) ----
+decoration {
+    rounding = 10
+    active_opacity = 1.0
+    inactive_opacity = 1.0
+    blur {
+        enabled = true
+        size = 3
+        passes = 2
+        new_optimizations = true
+        ignore_opacity = true
+        vibrancy = 0.1696
+    }
+    shadow {
+        enabled = true
+        range = 10
+        render_power = 3
+        color = rgba(1a1a1aee)
+    }
+    dim_inactive = false
+}
+
+# ---- Animations (estilo By-LeyzS) ----
+animations {
+    enabled = yes
+    bezier = firlat, 0.25, 1, 0.5, 1
+    bezier = wind, 0.05, 0.9, 0.1, 1.0
+    bezier = winIn, 0.05, 0.9, 0.1, 1.01
+    bezier = winOut, 0.7, 0, 0.1, 1.0
+    bezier = liner, 1, 1, 1, 1
+    bezier = almostLinear, 0.5, 0.5, 0.75, 1.0
+    animation = windows, 1, 10, wind, slide
+    animation = windowsIn, 1, 10, winIn, popin 80%
+    animation = windowsMove, 1, 4, wind, slide
+    animation = layersIn, 1, 5, firlat, slide bottom
+    animation = layersOut, 1, 4, firlat, slide bottom
+    animation = border, 1, 1, liner
+    animation = workspaces, 1, 5, wind, slide
+    animation = fadeIn, 1, 1.73, almostLinear
+    animation = fadeOut, 1, 1.46, almostLinear
+    animation = fade, 1, 3.03, almostLinear
+}
+
+# ---- Dwindle (bspwm-like splits; pseudotile removido en 0.55) ----
+dwindle {
+    preserve_split = true
+}
+# =====================================================
+#  KEYBINDINGS (migrados desde sxhkdrc + bspwmrc)
+# =====================================================
+
+# ---- Apps ----
+$mainMod = SUPER
+$altMod = ALT
+
+# Mouse: Super + click izq arrastra la ventana, Super + click der la redimensiona
+bindm = $mainMod, mouse:272, movewindow
+bindm = $mainMod, mouse:273, resizewindow
+
+# Perfil de GPU: alterna móvil (dGPU dormida) / híbrido (HDMI). Abre una
+# terminal porque el cambio pide reiniciar Hyprland y hay que confirmarlo.
+bind = $mainMod SHIFT, G, exec, kitty -e __HOME__/scripts/gpu-perfil.sh menu
+
+bind = $mainMod, Return, exec, OpenApps --terminal
+bind = $mainMod ALT, Return, exec, OpenApps --floating
+bind = $mainMod, B, exec, wofi --show drun --allow-images --width 720 --height 460 --prompt "  buscar..."
+bind = $mainMod, Space, exec, OpenApps --menu
+bind = $altMod, space, exec, OpenApps --rice
+bind = $mainMod SHIFT, B, exec, OpenApps --browser
+bind = $mainMod, E, exec, OpenApps --editor
+bind = $mainMod, F, exec, OpenApps --filemanager
+bind = $mainMod, Y, exec, OpenApps --yazi
+bind = $mainMod, V, exec, OpenApps --nvim
+bind = $mainMod, M, fullscreen, 0
+bind = $mainMod, P, exec, OpenApps --soundcontrol
+bind = $mainMod, T, exec, OpenApps --telegram
+bind = $mainMod, R, exec, OpenApps --riceedit
+
+# ---- Rofi applets ----
+bind = $mainMod ALT, T, exec, Term --selecterm
+bind = $mainMod ALT, W, exec, OpenApps --wallpaper
+bind = $mainMod ALT, A, exec, OpenApps --android
+bind = $mainMod ALT, N, exec, OpenApps --netmanager
+bind = $mainMod SHIFT, B, exec, OpenApps --bluetooth
+bind = $mainMod ALT, C, exec, OpenApps --clipboard
+bind = $mainMod ALT, S, exec, OpenApps --screenshot
+bind = $mainMod ALT, P, exec, OpenApps --powermenu
+bind = $mainMod ALT, K, exec, OpenApps --keyboard
+bind = $mainMod ALT, X, exec, OpenApps --pass
+
+# ---- Screenshots ----
+# PrtSc congela la pantalla y abre menú clickeable (ScreenShoTer): guarda en
+# ~/Pictures/Screenshots y copia al portapapeles. Al congelar antes de dibujar
+# el menú, los tooltips y popups abiertos sobreviven a la captura.
+bind = , Print, exec, OpenApps --screenshot
+# SHIFT+PrtSc va directo a seleccionar región sobre la pantalla congelada
+bind = SHIFT, Print, exec, $HOME/.config/hypr/scripts/ScreenShoTer --region
+
+# ---- Window management ----
+bind = $mainMod, Q, killactive
+# super+alt+f = maximizar (alias de alt+f, por si el pulgar toca Super)
+bind = $mainMod ALT, F, fullscreen, 1
+bind = $mainMod SHIFT, F, togglefloating
+
+# ---- Cambiar de workspace (flechas + a/d) | foco: super+alt ----
+# ---- Move focus (vim + arrows) ----
+bind = $mainMod, left, workspace, e-1
+bind = $mainMod, right, workspace, e+1
+bind = $mainMod, up, workspace, e+1
+bind = $mainMod, down, workspace, e-1
+bind = $mainMod, a, workspace, e-1
+bind = $mainMod, d, workspace, e+1
+
+bind = $mainMod ALT, left, movefocus, l
+bind = $mainMod ALT, right, movefocus, r
+bind = $mainMod ALT, up, movefocus, u
+bind = $mainMod ALT, down, movefocus, d
+bind = $mainMod ALT, a, movefocus, l
+bind = $mainMod ALT, s, movefocus, d
+bind = $mainMod ALT, w, movefocus, u
+bind = $mainMod ALT, d, movefocus, r
+
+# ---- Swap windows ----
+bind = CTRL ALT, left, swapwindow, l
+bind = CTRL ALT, right, swapwindow, r
+bind = CTRL ALT, up, swapwindow, u
+bind = CTRL ALT, down, swapwindow, d
+bind = CTRL ALT, a, swapwindow, l
+bind = CTRL ALT, s, swapwindow, d
+bind = CTRL ALT, w, swapwindow, u
+bind = CTRL ALT, d, swapwindow, r
+
+# ---- Move/resize (mouse-like) ----
+binde = $mainMod SHIFT, up, resizeactive, 0, -20
+binde = $mainMod SHIFT, down, resizeactive, 0, 20
+binde = $mainMod SHIFT, left, resizeactive, -20, 0
+binde = $mainMod SHIFT, right, resizeactive, 20, 0
+
+binde = $mainMod SHIFT, w, resizeactive, 0, -20
+binde = $mainMod SHIFT, s, resizeactive, 0, 20
+binde = $mainMod SHIFT, a, resizeactive, -20, 0
+binde = $mainMod SHIFT, d, resizeactive, 20, 0
+
+# ---- Move window (sin resize) ----
+bind = $mainMod SHIFT CTRL, left, movewindow, l
+bind = $mainMod SHIFT CTRL, right, movewindow, r
+bind = $mainMod SHIFT CTRL, up, movewindow, u
+bind = $mainMod SHIFT CTRL, down, movewindow, d
+
+# ---- Workspaces ----
+bind = $mainMod, 1, workspace, 1
+bind = $mainMod, 2, workspace, 2
+bind = $mainMod, 3, workspace, 3
+bind = $mainMod, 4, workspace, 4
+bind = $mainMod, 5, workspace, 5
+bind = $mainMod, 6, workspace, 6
+bind = $mainMod, 7, workspace, 7
+bind = $mainMod, 8, workspace, 8
+bind = $mainMod, 9, workspace, 9
+bind = $mainMod, 0, workspace, 10
+
+bind = $mainMod SHIFT, 1, movetoworkspace, 1
+bind = $mainMod SHIFT, 2, movetoworkspace, 2
+bind = $mainMod SHIFT, 3, movetoworkspace, 3
+bind = $mainMod SHIFT, 4, movetoworkspace, 4
+bind = $mainMod SHIFT, 5, movetoworkspace, 5
+bind = $mainMod SHIFT, 6, movetoworkspace, 6
+bind = $mainMod SHIFT, 7, movetoworkspace, 7
+bind = $mainMod SHIFT, 8, movetoworkspace, 8
+bind = $mainMod SHIFT, 9, movetoworkspace, 9
+bind = $mainMod SHIFT, 0, movetoworkspace, 10
+
+# ---- Special ----
+bind = $mainMod CTRL, B, exec, ~/.config/hypr/scripts/reload.sh
+bind = $mainMod ALT, Escape, cyclenext, prev
+bind = $altMod, F4, cyclenext, prev
+bind = $mainMod ALT, L, exec, ~/.config/hypr/scripts/lock.sh
+bind = CTRL ALT, L, exec, ~/.config/hypr/scripts/lock.sh
+
+# ---- Wallpapers estilo By-LeyzS (pywal sincroniza toda la UI) ----
+# super+w = selector de wallpaper estático (wofi)
+bind = $mainMod, W, exec, ~/.config/hypr/scripts/wallpapers/set-wallpaper.sh
+# super+ctrl+w = wallpaper aleatorio
+bind = $mainMod CTRL, W, exec, ~/.config/hypr/scripts/wallpapers/random-wallpaper.sh
+# super+k = wallpaper animado (.mp4 en ~/Videos/LiveWallpapers, requiere mpvpaper)
+bind = $mainMod, K, exec, ~/.config/hypr/scripts/wallpapers/live-wallpaper.sh
+# super+ctrl+k = cortar vídeo y volver a estático
+bind = $mainMod CTRL, K, exec, ~/.config/hypr/scripts/back-to-static.sh
+# super+ctrl+v = toggle shader vibrance
+bind = $mainMod CTRL, V, exec, ~/.config/hypr/shaders/switch_shader.sh
+
+# ---- Audio (swayosd-client → OSD como notificación, no ventana) ----
+binde = , XF86AudioRaiseVolume, exec, swayosd-client --output-volume raise
+binde = , XF86AudioLowerVolume, exec, swayosd-client --output-volume lower
+bind = , XF86AudioMute, exec, swayosd-client --output-volume mute-toggle
+binde = , XF86AudioMicMute, exec, swayosd-client --input-volume mute-toggle
+binde = , XF86AudioPlay, exec, swayosd-client --playerctl play-pause
+binde = , XF86AudioNext, exec, swayosd-client --playerctl next
+binde = , XF86AudioPrev, exec, swayosd-client --playerctl previous
+
+# ---- Brightness (swayosd-client → OSD como notificación) ----
+binde = , XF86MonBrightnessUp, exec, swayosd-client --brightness raise
+binde = , XF86MonBrightnessDown, exec, swayosd-client --brightness lower
+
+# =====================================================
+#  BINDS EXTRA (migrados del sxhkdrc de bspwm)
+#  super + x y todos los comandos de cierre/gestión que faltaban
+# =====================================================
+
+# ---- Close / Kill (X11 bspwm) ----
+# super + x = cerrar ventana enfocada (era el principal en bspwm)
+bind = $mainMod, X, killactive
+# super + shift + x = forzar cierre
+bind = $mainMod SHIFT, X, killactive
+# super + ctrl + x = cerrar TODO el workspace actual
+bind = $mainMod CTRL, X, exec, ~/.config/hypr/scripts/close-workspace.sh
+# super + n + x = cerrar todas las demás (mantiene la enfocada)
+bind = $mainMod, N; X, exec, ~/.config/hypr/scripts/close-others.sh
+# super + n + k = matar (force) todas las demás
+bind = $mainMod, N; K, exec, ~/.config/hypr/scripts/kill-others.sh
+# super + n + m = no migrable (bspwm "marked" no existe en Hyprland)
+# super + n + {1-9} = traer todo de workspace N al actual
+bind = $mainMod, N; 1, exec, ~/.config/hypr/scripts/grab-ws.sh 1
+bind = $mainMod, N; 2, exec, ~/.config/hypr/scripts/grab-ws.sh 2
+bind = $mainMod, N; 3, exec, ~/.config/hypr/scripts/grab-ws.sh 3
+bind = $mainMod, N; 4, exec, ~/.config/hypr/scripts/grab-ws.sh 4
+bind = $mainMod, N; 5, exec, ~/.config/hypr/scripts/grab-ws.sh 5
+bind = $mainMod, N; 6, exec, ~/.config/hypr/scripts/grab-ws.sh 6
+bind = $mainMod, N; 7, exec, ~/.config/hypr/scripts/grab-ws.sh 7
+bind = $mainMod, N; 8, exec, ~/.config/hypr/scripts/grab-ws.sh 8
+bind = $mainMod, N; 9, exec, ~/.config/hypr/scripts/grab-ws.sh 9
+
+# ---- Node states (bspwm alt+t/a/f/etc) ----
+# alt + t = set tiled (en HPL: settiled)
+bind = $altMod, T, settiled
+# alt + f = maximizar (pantalla grande, respeta waybar)
+bind = $altMod, F, fullscreen, 1
+# alt + space no, eso es el rice selector
+
+# ---- Pin / Sticky (bspwm alt+s) ----
+bind = $altMod, S, pin
+# Toggle pin
+bind = $altMod SHIFT, S, pin
+
+# ---- Window switcher (alt+Tab en bspwm) ----
+bind = $altMod, Tab, exec, ~/.config/hypr/scripts/window-switcher.sh
+
+# ---- Toggle split / rotate (ctrl+Tab en bspwm) ----
+bind = CTRL, Tab, exec, ~/.config/hypr/scripts/rotate.sh
+
+# ---- Move floating window (super+ctrl+plus/minus en bspwm) ----
+# Ya hay resize con super+shift+aswd; estos eran zoom para floating
+binde = $mainMod CTRL, equal, resizeactive, 50, 25
+binde = $mainMod CTRL, minus, resizeactive, -50, -25
+
+# ---- Scratchpad (super+alt+o en bspwm) ----
+bind = $mainMod ALT, O, exec, ~/.config/hypr/scripts/scratchpad.sh
+bind = $mainMod SHIFT, O, togglespecialworkspace
+
+# ---- System power (ctrl+super+alt+{p,r,q,l,k,s} en bspwm) ----
+bind = $mainMod CTRL ALT, P, exec, systemctl poweroff
+bind = $mainMod CTRL ALT, R, exec, systemctl reboot
+bind = $mainMod CTRL ALT, Q, exec, hyprctl dispatch exit
+bind = $mainMod CTRL ALT, K, exec, hyprctl dispatch killactive
+bind = $mainMod CTRL ALT, S, exec, ~/.config/hypr/scripts/soft-reload.sh
+
+# ---- Soft reload (super+Escape en bspwm = pkill -USR1 sxhkd) ----
+bind = $mainMod, Escape, exec, ~/.config/hypr/scripts/soft-reload.sh
+
+# ---- Opacity (ctrl+alt+{plus,minus,t} en bspwm: picom-trans) ----
+# En Hyprland no aplica directamente, el blur/opacity son nativos
+bind = CTRL ALT, plus, exec, ~/.config/hypr/scripts/opacity.sh +
+bind = CTRL ALT, equal, exec, ~/.config/hypr/scripts/opacity.sh +
+bind = CTRL ALT, minus, exec, ~/.config/hypr/scripts/opacity.sh -
+bind = CTRL ALT, T, exec, ~/.config/hypr/scripts/opacity.sh d
+
+# ---- Lupa / zoom de pantalla (equivalente a la lupa de Windows) ----
+# Zoom nativo de Hyprland, sigue al cursor. Pasos de 0.25, tope x5
+# Bindeado por KEYCODE, no por keysym: es independiente de la distribucion
+# y evita el lio de latam (la tecla + da "plus", y con SHIFT el - da
+# "underscore"). code:35 = tecla + (AD12) | code:61 = tecla - (AB10)
+binde = $mainMod, code:35, exec, ~/.config/hypr/scripts/zoom.sh +
+binde = $mainMod, code:61, exec, ~/.config/hypr/scripts/zoom.sh -
+bind = $mainMod SHIFT, code:61, exec, ~/.config/hypr/scripts/zoom.sh reset
+# Mismo par en el teclado numerico (code:86 = KP+ | code:82 = KP-)
+binde = $mainMod, code:86, exec, ~/.config/hypr/scripts/zoom.sh +
+binde = $mainMod, code:82, exec, ~/.config/hypr/scripts/zoom.sh -
+
+# Mismo par con CTRL+SHIFT, a juego con la rueda. CTRL a secas se descarto:
+# lo captura el compositor y el navegador se queda sin su CTRL + +.
+# OJO: aqui SI hay que anadir SHIFT al keycode del +, pero el keycode es el
+# mismo se pulse o no SHIFT, asi que basta con declarar el modificador.
+binde = CTRL SHIFT, code:35, exec, ~/.config/hypr/scripts/zoom.sh +
+binde = CTRL SHIFT, code:61, exec, ~/.config/hypr/scripts/zoom.sh -
+binde = CTRL SHIFT, code:86, exec, ~/.config/hypr/scripts/zoom.sh +
+binde = CTRL SHIFT, code:82, exec, ~/.config/hypr/scripts/zoom.sh -
+bind  = CTRL SHIFT, code:19, exec, ~/.config/hypr/scripts/zoom.sh reset
+
+# ---- Lupa con la rueda del raton: CTRL+SHIFT + scroll ----
+# No depende del keysym ni de la distribucion del teclado.
+# Con SHIFT ademas de CTRL para no pisar el zoom del navegador, que usa
+# CTRL+rueda: antes el compositor se comia el scroll y la pagina no ampliaba.
+bind = CTRL SHIFT, mouse_up, exec, ~/.config/hypr/scripts/zoom.sh +
+bind = CTRL SHIFT, mouse_down, exec, ~/.config/hypr/scripts/zoom.sh -
+bind = CTRL SHIFT, mouse:274, exec, ~/.config/hypr/scripts/zoom.sh reset
+
+# ---- Help (alt+F1 en bspwm: OpenApps --KeyHelp) ----
+# Eww no funciona en Wayland → muestra el cheatsheet via wofi
+bind = $altMod, F1, exec, kitty --hold -e "less $HOME/notes/keybindings.md"
+
+# ---- Bring all to current workspace direction (bspwm: super+ctrl+{Left,Right}) ----
+bind = $mainMod CTRL, left, movetoworkspace, e-1
+bind = $mainMod CTRL, right, movetoworkspace, e+1
+
+# ---- Send to next/prev workspace (bspwm: super+ctrl+aswd) ----
+bind = $mainMod CTRL, A, movetoworkspace, e-1
+bind = $mainMod CTRL, D, movetoworkspace, e+1
+
+# ---- Preselect (bspwm: super+ctrl+h/v/q) — no migrado (no aplica en dwindle) ----
+
+# ---- Workspace back/forward (bspwm: super+Tab+aswd) ----
+bind = $mainMod, Tab; left, workspace, e-1
+bind = $mainMod, Tab; right, workspace, e+1
+bind = $mainMod, Tab; A, workspace, e-1
+bind = $mainMod, Tab; D, workspace, e+1
+
+# ---- Focus last node/desktop (bspwm: ctrl+shift+comma/period) ----
+# Hyprland no tiene "last" exactamente; usa cyclenext
+bind = CTRL SHIFT, comma, cyclenext, prev
+bind = CTRL SHIFT, period, cyclenext, next
+
+# =====================================================
+#  WINDOW RULES (sintaxis 0.55.4: space-separated, sin coma)
+#  Formato: windowrule = <regla> <matcher regex>
+# =====================================================
+
+# Floating por defecto para herramientas puntuales
+windowrule = float class:^(pavucontrol)$
+windowrule = float class:^(blueman-manager)$
+windowrule = float class:^(nm-connection-editor)$
+windowrule = float class:^(pamac-manager)$
+windowrule = float class:^(qt5ct)$
+windowrule = float class:^(qt6ct)$
+windowrule = float class:^(thunar)$
+windowrule = float class:^(nm-applet)$
+
+# Waybar oculto de Alt+Tab (ws 99 + silent)
+# (eww removido: no funciona en Wayland nativo)
+windowrule = workspace 99 silent class:^(waybar)$
+
+# Opacidad 1 en terminales nativos
+# (deshabilitado: sintaxis opacity requiere lua config en Hyprland 0.55+)
+# windowrule = opacity 1.0, class:^(kitty)$
+# windowrule = opacity 1.0, class:^(Alacritty)$
+
+# Tamaño + centrado inicial
+windowrule = size 800 600 class:^(Thunar)$
+windowrule = size 30% 60% class:^(pavucontrol)$
+windowrule = center class:^(pavucontrol)$
+# =====================================================
+#  LAYER RULES (sintaxis 0.55.4: ignorealpha NO existe)
+# =====================================================
+
+# layerrule = blur waybar   # parpadeo con NVIDIA — desactivado
+layerrule = blur swaync-control-center
+layerrule = blur swaync-notification-window
+
+# =====================================================
+#  WORKSPACE RULES
+#  Asignación dinámica: 1-5 al primario, 6-10 al secundario
+#  (si no hay segundo monitor, caen al primario automáticamente)
+# =====================================================
+
+workspace = 1, monitor:eDP-1, persistent:true, default:true
+workspace = 2, monitor:eDP-1, persistent:true
+workspace = 3, monitor:eDP-1, persistent:true
+workspace = 4, monitor:eDP-1, persistent:true
+workspace = 5, monitor:eDP-1, persistent:true
+workspace = 6, monitor:HDMI-A-1, persistent:true
+workspace = 7, monitor:HDMI-A-1, persistent:true
+workspace = 8, monitor:HDMI-A-1, persistent:true
+workspace = 9, monitor:HDMI-A-1, persistent:true
+workspace = 10, monitor:HDMI-A-1, persistent:true

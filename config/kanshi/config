@@ -1,0 +1,15 @@
+# =============================================================
+# kanshi — auto display config
+# Reemplaza autorandr
+# =============================================================
+
+# Perfil: solo laptop
+profile laptop {
+    output eDP-1 position 0,0 mode 1920x1080 rate 144
+}
+
+# Perfil: laptop + HDMI
+profile hybrid {
+    output eDP-1 position 0,0 mode 1920x1080 rate 144
+    output HDMI-A-1 position 1920,0 mode 1920x1080 rate 60
+}

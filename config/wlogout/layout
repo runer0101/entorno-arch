@@ -1,0 +1,30 @@
+{
+    "label" : "lock",
+    "action" : "__HOME__/scripts/powermenu-confirm.sh lock",
+    "text" : "Lock",
+    "keybind" : "l"
+}
+{
+    "label" : "reboot",
+    "action" : "__HOME__/scripts/powermenu-confirm.sh reboot",
+    "text" : "Reboot",
+    "keybind" : "r"
+}
+{
+    "label" : "shutdown",
+    "action" : "__HOME__/scripts/powermenu-confirm.sh shutdown",
+    "text" : "Shutdown",
+    "keybind" : "s"
+}
+{
+    "label" : "logout",
+    "action" : "__HOME__/scripts/powermenu-confirm.sh logout",
+    "text" : "Logout",
+    "keybind" : "e"
+}
+{
+    "label" : "suspend",
+    "action" : "__HOME__/scripts/powermenu-confirm.sh suspend",
+    "text" : "Suspend",
+    "keybind" : "u"
+}

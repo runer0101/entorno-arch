@@ -1,0 +1,46 @@
+// =============================================================
+// waybar — estilo By-LeyzS (barra flotante, píldoras, pywal)
+//
+// UNA BARRA POR MONITOR. Todo lo común (ajustes + módulos) está en
+// common.jsonc; aquí sólo se dice qué workspaces pinta cada pantalla.
+//
+// Hace falta partirlo así porque los workspaces ya no los pinta el módulo
+// hyprland/workspaces (que se filtraba solo por monitor con all-outputs:false)
+// sino un módulo custom por número — ver el bloque WORKSPACES de common.jsonc
+// para el porqué. Los módulos custom son iguales en todas las barras, así que
+// el reparto por pantalla hay que hacerlo aquí.
+//
+// El reparto refleja los workspace_rule de ~/.config/hypr/hyprland.lua:
+// 1-5 en eDP-1 y 6-10 en HDMI-A-1.
+//
+// OJO: al fijar "output", un monitor nuevo que no sea eDP-1 ni HDMI-A-1 se
+// queda sin barra. Si algún día conectas otro, añade aquí su bloque.
+// =============================================================
+
+[
+    // ── Pantalla del portátil ──
+    {
+        "include": ["__HOME__/.config/waybar/common.jsonc"],
+        "output": "eDP-1",
+        "modules-center": [
+            "custom/ws1",
+            "custom/ws2",
+            "custom/ws3",
+            "custom/ws4",
+            "custom/ws5"
+        ]
+    },
+
+    // ── Monitor externo ──
+    {
+        "include": ["__HOME__/.config/waybar/common.jsonc"],
+        "output": "HDMI-A-1",
+        "modules-center": [
+            "custom/ws6",
+            "custom/ws7",
+            "custom/ws8",
+            "custom/ws9",
+            "custom/ws10"
+        ]
+    }
+]

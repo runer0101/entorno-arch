@@ -1,0 +1,78 @@
+# entorno-arch — paquetes necesarios para reconstruir el escritorio
+# Instalación:  pacman -S --needed - < packages.txt
+#
+# Solo lo visual. No incluye waydroid, android-sdk ni herramientas de desarrollo.
+
+# --- Escritorio y compositor ---
+hyprland
+hypridle
+hyprlock
+hyprpaper
+hyprpicker
+xdg-desktop-portal-hyprland
+qt5-wayland
+qt6-wayland
+
+# --- Barra, notificaciones y OSD ---
+waybar
+swaync
+swaybg
+swaylock
+swayosd
+
+# --- Menús y lanzadores ---
+wofi
+wlogout
+fuzzel
+
+# --- Terminales ---
+kitty
+alacritty
+
+# --- Widgets y utilidades ---
+cava
+btop
+htop
+kanshi
+
+# --- Temario GTK y QT ---
+gtk3
+gtk4
+libadwaita
+qt5ct
+qt6ct
+
+# --- Colores dinámicos (pywal) ---
+pywal
+python-pywal
+
+# --- Fuentes ---
+ttf-jetbrains-mono
+ttf-jetbrains-mono-nerd
+ttf-liberation
+noto-fonts
+noto-fonts-emoji
+noto-fonts-cjk
+ttf-font-awesome
+
+# --- Shell y utilidades ---
+zsh
+bash
+fzf
+git
+less
+ripgrep
+fd
+bat
+eza
+zoxide
+starship
+tree
+unzip
+curl
+wget
+
+# --- Imágenes y edicion ---
+imv
+imv-wayland
+blueman

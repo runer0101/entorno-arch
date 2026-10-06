@@ -1,0 +1,203 @@
+#!/bin/bash
+# =============================================================
+#  BluetoothDM — Menú Bluetooth con bluetoothctl (Wayland)
+#  Mismo estilo y lógica que NetManagerDM: wofi, iconos, avisos,
+#  emparejado con reintento y PIN visible si el aparato lo pide.
+# =============================================================
+
+WOFI_STYLE="$HOME/.config/wofi/style.css"
+
+notify() { notify-send -a "Bluetooth" "Bluetooth" "$1" 2>/dev/null; }
+
+# --cache-file=/dev/null: sin historial, el orden del menú se respeta siempre
+menu() { wofi --dmenu --hide-search --insensitive --cache-file=/dev/null --prompt "$1" --style "$WOFI_STYLE" 2>/dev/null; }
+input() { : | wofi --dmenu --cache-file=/dev/null --prompt "$1" --style "$WOFI_STYLE" 2>/dev/null; }
+
+bt() { bluetoothctl "$@" 2>/dev/null; }
+
+powered()    { bt show | grep -q "Powered: yes"; }
+info_has()   { bt info "$1" | grep -q "$2"; }
+is_conn()    { info_has "$1" "Connected: yes"; }
+is_paired()  { info_has "$1" "Paired: yes"; }
+is_trusted() { info_has "$1" "Trusted: yes"; }
+
+dev_name() {
+    local n
+    n=$(bt info "$1" | sed -n 's/^\s*Name: //p' | head -1)
+    [ -z "$n" ] && n=$(bt info "$1" | sed -n 's/^\s*Alias: //p' | head -1)
+    [ -z "$n" ] && n="$1"
+    printf '%s' "$n"
+}
+
+# Icono según la clase del aparato
+dev_icon() {
+    local icon
+    icon=$(bt info "$1" | sed -n 's/^\s*Icon: //p' | head -1)
+    case "$icon" in
+        audio-headset|audio-headphones) printf '󰋎' ;;
+        audio-card)                     printf '󰓃' ;;
+        input-keyboard)                 printf '󰌌' ;;
+        input-mouse)                    printf '󰍽' ;;
+        input-gaming)                   printf '󰊴' ;;
+        phone)                          printf '󰄞' ;;
+        computer)                       printf '󰟀' ;;
+        printer)                        printf '󰐪' ;;
+        *)                              printf '󰂯' ;;
+    esac
+}
+
+# ── Lista de aparatos ─────────────────────────────────────────
+declare -A MAC_OF
+declare -a ROWS
+
+build_list() {
+    MAC_OF=(); ROWS=()
+    local src="$1" line mac name row mark icon estado
+    while IFS= read -r line; do
+        case "$line" in Device\ *) ;; *) continue ;; esac
+        line=${line#Device }
+        mac=${line%% *}
+        name=${line#* }
+        [ -z "$mac" ] && continue
+        [ -n "${MAC_OF[__seen_$mac]}" ] && continue
+        MAC_OF["__seen_$mac"]=1
+
+        icon=$(dev_icon "$mac")
+        if   is_conn "$mac";   then mark="✔ "; estado="conectado"
+        elif is_paired "$mac"; then mark="  "; estado="guardado ★"
+        else                        mark="  "; estado="nuevo"
+        fi
+
+        row="${mark}${icon}  ${name}  ·  ${estado}"
+        ROWS+=("$row")
+        MAC_OF["$row"]="$mac"
+    done < <(bt devices $src)
+}
+
+# ── Acciones sobre un aparato ─────────────────────────────────
+do_connect() {
+    local mac="$1" name out intento=0
+    name=$(dev_name "$mac")
+
+    if ! is_paired "$mac"; then
+        notify "Emparejando con ${name}…"
+        bt trust "$mac" >/dev/null
+        while [ "$intento" -lt 3 ]; do
+            intento=$((intento + 1))
+            out=$(bt pair "$mac")
+            case "$out" in
+                *"Pairing successful"*|*"already"*|*"AlreadyExists"*)
+                    notify "✔ Emparejado con ${name}"; break ;;
+                *"AuthenticationFailed"*|*"AuthenticationCanceled"*)
+                    notify "✖ Emparejado rechazado por ${name} (intento ${intento}/3)" ;;
+                *)
+                    notify "✖ No se pudo emparejar (intento ${intento}/3)" ;;
+            esac
+            [ "$intento" -ge 3 ] && { notify "✖ Emparejado fallido con ${name}"; return 1; }
+            sleep 1
+        done
+    fi
+
+    notify "Conectando a ${name}…"
+    out=$(bt connect "$mac")
+    if is_conn "$mac"; then
+        bt trust "$mac" >/dev/null
+        notify "✔ Conectado a ${name}"
+    else
+        case "$out" in
+            *"br-connection-profile-unavailable"*)
+                notify "✖ ${name} no ofrece un perfil compatible" ;;
+            *"NotReady"*) notify "✖ Enciende el Bluetooth primero" ;;
+            *"in progress"*) notify "⏳ Conexión en curso con ${name}" ;;
+            *) notify "✖ No se pudo conectar a ${name}" ;;
+        esac
+        return 1
+    fi
+}
+
+device_menu() {
+    local mac="$1" name accion opciones
+    name=$(dev_name "$mac")
+
+    if is_conn "$mac"; then
+        opciones="󰂲  Desconectar\n󰂯  Reconectar\n"
+    else
+        opciones="󰂯  Conectar\n"
+    fi
+    is_paired "$mac" && opciones="${opciones}🗑  Olvidar este aparato\n"
+    is_trusted "$mac" || opciones="${opciones}󰄬  Confiar siempre\n"
+    opciones="${opciones}󰋼  Ver información\n↩  Volver\n"
+
+    accion=$(printf "$opciones" | menu "$name")
+    case "$accion" in
+        *Desconectar)        bt disconnect "$mac" >/dev/null; notify "󰂲 Desconectado de ${name}" ;;
+        *Conectar|*Reconectar) do_connect "$mac" ;;
+        *"Olvidar este"*)    bt remove "$mac" >/dev/null; notify "🗑 Aparato olvidado: ${name}" ;;
+        *"Confiar siempre")  bt trust "$mac" >/dev/null; notify "󰄬 ${name} es de confianza" ;;
+        *"Ver información")
+            notify "$(bt info "$mac" | sed -n 's/^\s*\(Name\|Alias\|Paired\|Trusted\|Connected\|Battery Percentage\)/\1/p' | head -8)" ;;
+        *) return 0 ;;
+    esac
+}
+
+show_devices() {
+    local src="$1" titulo="$2" sel
+    build_list "$src"
+    if [ ${#ROWS[@]} -eq 0 ]; then
+        notify "No hay aparatos en «${titulo}». Prueba «Buscar aparatos»."
+        return 0
+    fi
+    sel=$(printf '%s\n' "${ROWS[@]}" | menu "$titulo")
+    [ -z "$sel" ] && return 0
+    device_menu "${MAC_OF[$sel]}"
+}
+
+scan_devices() {
+    notify "Buscando aparatos cercanos (12 s)… ponlos en modo emparejar"
+    bt --timeout 12 scan on >/dev/null
+    notify "Búsqueda terminada"
+    show_devices "" "Aparatos encontrados"
+}
+
+toggle_bt() {
+    if powered; then
+        bt power off >/dev/null; notify "Bluetooth apagado"
+    else
+        rfkill unblock bluetooth 2>/dev/null
+        bt power on >/dev/null; notify "Bluetooth encendido"
+    fi
+}
+
+# ── Menú principal ────────────────────────────────────────────
+main_menu() {
+    local toggle estado conectados
+    if powered; then toggle="󰂲  Apagar Bluetooth"; else toggle="󰂯  Encender Bluetooth"; fi
+
+    conectados=$(bt devices Connected | sed -n 's/^Device [^ ]* //p' | paste -sd ", " -)
+    if [ -n "$conectados" ]; then estado="󰂱  Conectado: ${conectados}"
+    elif powered;             then estado="󰂯  Encendido, sin conexión"
+    else                           estado="󰂲  Bluetooth apagado"
+    fi
+
+    printf '%s\n󰂯  Ver aparatos guardados\n󰑓  Buscar aparatos nuevos\n%s\n󰒓  Abrir gestor completo\n✖  Salir del menú\n' \
+        "$estado" "$toggle" | menu "Bluetooth"
+}
+
+# Si está apagado, ofrecer encenderlo de una
+if ! powered; then
+    case "$(printf '󰂯  Encender Bluetooth\n✖  Salir\n' | menu "Bluetooth apagado")" in
+        *Encender) toggle_bt; sleep 1 ;;
+        *) exit 0 ;;
+    esac
+fi
+
+action=$(main_menu)
+[ -n "$action" ] || exit 0
+
+case "$action" in
+    *"Ver aparatos guardados")            show_devices "Paired" "Aparatos guardados" ;;
+    *"Buscar aparatos nuevos")            scan_devices ;;
+    *"Apagar Bluetooth"|*"Encender Bluetooth") toggle_bt ;;
+    *"Abrir gestor completo")             blueman-manager & ;;
+    *"Conectado: "*|*"sin conexión")      show_devices "Paired" "Aparatos guardados" ;;
+esac

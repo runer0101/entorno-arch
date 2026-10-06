@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# waydroid-stop — Apagado completo de Waydroid: juego + sesión + contenedor.
+# Idempotente: seguro llamarlo varias veces. Maneja SUPER+X.
+#============================================================
+
+set -euo pipefail
+
+QUIET=0
+[[ "${1:-}" == "--quiet" ]] && QUIET=1
+
+LOG="$HOME/.config/waydroid-custom/logs/session.log"
+LOCK="/tmp/waydroid-game.lock"
+WATCHDOG_PID_FILE="/tmp/waydroid-watchdog.pid"
+
+mkdir -p "$(dirname "$LOG")"
+
+_ts() { date '+%Y-%m-%d %H:%M:%S'; }
+log()  { (( QUIET )) || printf '[%s][stop] %s\n' "$(_ts)" "$*" | tee -a "$LOG" >&2; }
+log0() { printf '[%s][stop] %s\n' "$(_ts)" "$*" | tee -a "$LOG" >&2; }
+
+# ---------- 1. Terminar watchdog ----------
+if [[ -f "$WATCHDOG_PID_FILE" ]]; then
+  WDPID=$(cat "$WATCHDOG_PID_FILE" 2>/dev/null || echo "")
+  if [[ -n "$WDPID" ]] && kill -0 "$WDPID" 2>/dev/null; then
+    kill "$WDPID" 2>/dev/null || true
+    log "Watchdog detenido (PID $WDPID)"
+  fi
+  rm -f "$WATCHDOG_PID_FILE"
+fi
+
+# ---------- 2. Cerrar ventana Waydroid (Hyprland) ----------
+if command -v hyprctl >/dev/null; then
+  hyprctl clients -j 2>/dev/null \
+    | python3 -c "
+import json, sys
+try:
+  cs = json.load(sys.stdin)
+  for c in cs:
+    cls = (c.get('class') or '').lower()
+    tit = (c.get('title') or '').lower()
+    if 'waydroid' in cls or 'waydroid' in tit:
+      print(c.get('address'))
+except Exception:
+  pass
+" 2>/dev/null \
+    | while IFS= read -r addr; do
+        [[ -n "$addr" ]] && hyprctl dispatch closewindow "address:$addr" >/dev/null 2>&1 || true
+      done
+fi
+
+# ---------- 3. Matar cualquier launcher de juego / show-full-ui en el host
+pkill -f "waydroid app launch"       2>/dev/null || true
+pkill -f "waydroid show-full-ui"      2>/dev/null || true
+pkill -f "waydroid-gui"               2>/dev/null || true
+
+# ---------- 4. Cerrar el juego dentro de Waydroid ----------
+if systemctl -q is-active waydroid-container.service 2>/dev/null; then
+  # Buscar cualquier app tencent o saint seiya y force-stop
+  for PKG in $(waydroid shell pm list packages 2>/dev/null \
+                 | sed -n 's/^package://p' \
+                 | grep -E "tencent|bandainamcoent.*sse" || true); do
+    log "Force-stop $PKG"
+    waydroid shell am force-stop "$PKG" >/dev/null 2>&1 || true
+  done
+fi
+
+# ---------- 5. Stop sesión ----------
+if command -v waydroid >/dev/null; then
+  log "Deteniendo sesión Waydroid..."
+  waydroid session stop >/dev/null 2>&1 || true
+fi
+
+# ---------- 6. Stop contenedor ----------
+if systemctl list-unit-files waydroid-container.service >/dev/null 2>&1; then
+  log "Deteniendo contenedor (sudo)..."
+  sudo systemctl stop waydroid-container.service >/dev/null 2>&1 || true
+fi
+
+# ---------- 7. Limpiar lock ----------
+rm -f "$LOCK" "$WATCHDOG_PID_FILE"
+
+log0 "✓ Waydroid completamente apagado"
+exit 0

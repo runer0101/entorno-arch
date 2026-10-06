@@ -1,0 +1,66 @@
+#!/bin/bash
+# =============================================================
+#  AndroidMount — Montar Android vía simple-mtpfs (Wayland)
+#  Migrado: usa wofi en vez de rofi, notify-send (mako) en vez de dunstify.
+# =============================================================
+
+WOFI_STYLE="$HOME/.config/wofi/style.css"
+
+BASE_MOUNT_POINT="$HOME/Android_Mount"
+
+notify() {
+    notify-send -a "Android" "Android Mount" "$1" 2>/dev/null
+}
+
+list_devices() {
+    simple-mtpfs -l 2>/dev/null | awk -F': ' 'NF>=2 {print $1 " " $2}' \
+        | wofi --dmenu --prompt "Select device" --style "$WOFI_STYLE" 2>/dev/null
+}
+
+is_mounted() {
+    mount 2>/dev/null | grep -q "$1"
+}
+
+mount_device() {
+    local dev="$1" mp="$2"
+    if [ ! -d "$mp" ]; then
+        mkdir -p "$mp" || { notify "Failed to create $mp"; return 1; }
+    fi
+    if simple-mtpfs --device "$dev" "$mp"; then
+        notify "Mounted at $mp"
+    else
+        notify "Failed to mount device $dev"
+    fi
+}
+
+unmount_device() {
+    local mp="$1"
+    if fusermount -u "$mp"; then
+        notify "Unmounted from $mp"
+        rmdir "$mp" 2>/dev/null
+    else
+        notify "Failed to unmount $mp"
+    fi
+}
+
+[ -d "$BASE_MOUNT_POINT" ] || mkdir -p "$BASE_MOUNT_POINT"
+
+DEVICE=$(list_devices)
+[ -z "$DEVICE" ] && { notify "No device selected"; exit 0; }
+
+DEVICE_NUM=$(echo "$DEVICE" | awk '{print $1}')
+DEVICE_NAME=$(echo "$DEVICE" | awk '{$1=""; print $0}' | xargs)
+MOUNT_POINT="$BASE_MOUNT_POINT/$DEVICE_NAME"
+
+if [ -z "$DEVICE_NUM" ]; then
+    notify "No device selected"
+    exit 1
+fi
+
+if is_mounted "$MOUNT_POINT"; then
+    ACTION=$(printf "Unmount" | wofi --dmenu --prompt "$DEVICE_NAME is mounted" --style "$WOFI_STYLE" 2>/dev/null)
+    [ "$ACTION" = "Unmount" ] && unmount_device "$MOUNT_POINT"
+else
+    ACTION=$(printf "Mount" | wofi --dmenu --prompt "$DEVICE_NAME is not mounted" --style "$WOFI_STYLE" 2>/dev/null)
+    [ "$ACTION" = "Mount" ] && mount_device "$DEVICE_NUM" "$MOUNT_POINT"
+fi

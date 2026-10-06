@@ -1,0 +1,44 @@
+#!/bin/bash
+# Módulo waybar: uso de disco en la barra + cuadro (particiones, espacio
+# usado/libre y tamaño de cachés liberables) en el tooltip.
+# Click: abre yazi (mismo gestor de archivos que Super+Y).
+
+# ── Uso de /home para el texto de la barra ──
+read -r size used avail pct <<< "$(df -B1 --output=size,used,avail,pcent /home | tail -1 | tr -d '%')"
+
+gb() { awk -v b="$1" 'BEGIN{printf "%.1f", b/1024/1024/1024}'; }
+
+col_for() { if [ "$1" -lt 75 ]; then echo "#9ece6a"; elif [ "$1" -lt 90 ]; then echo "#e0af68"; else echo "#f7768e"; fi; }
+ucol=$(col_for "$pct")
+
+icon="󰋊"
+text="<span font='JetBrainsMono Nerd Font' color='${ucol}'>${icon} ${pct}%</span>"
+
+nl=$'\n'
+row() { local pad=$((13 - ${#1})); [ "$pad" -lt 1 ] && pad=1; printf ' %s%*s%s' "$1" "$pad" '' "$2"; }
+
+tt="<span foreground='${ucol}'><b>󰋊 Disco (/home)  ${pct}%</b></span>${nl}"
+tt+="<span foreground='#565f89'>──────────────────────────</span>${nl}"
+
+# ── Una fila por partición real (/, /home, etc.) ──
+while read -r dev fsize fused favail fpct target; do
+    fpct=${fpct%\%}
+    fcol=$(col_for "$fpct")
+    name="$target"
+    [ "$target" = "/" ] && name="/ (raíz)"
+    tt+="$(row "$name" "<span foreground='${fcol}'>$(gb "$fused") GB</span> / $(gb "$fsize") GB (${fpct}%)")${nl}"
+    tt+="$(row '' "<span foreground='#565f89' size='smaller'>libre: $(gb "$favail") GB</span>")${nl}"
+done < <(df -B1 --output=source,size,used,avail,pcent,target \
+         | awk '$1 ~ /^\/dev\// && !seen[$1]++ {print}')
+
+# ── Caché de pacman liberable (dir plano, calcular es barato) ──
+pkgcache=$(du -sb /var/cache/pacman/pkg 2>/dev/null | cut -f1)
+if [ -n "$pkgcache" ]; then
+    tt+="<span foreground='#565f89'>──── liberable ────</span>${nl}"
+    tt+="$(row 'caché pacman' "$(gb "$pkgcache") GB <span foreground='#565f89' size='smaller'>(paccache -r)</span>")${nl}"
+fi
+tt+="<span foreground='#565f89' size='smaller'> click: abrir gestor de archivos (yazi)</span>${nl}"
+
+tooltip="<span font_family='JetBrainsMono Nerd Font'>${tt%${nl}}</span>"
+
+jq -nc --arg text "$text" --arg tooltip "$tooltip" '{text:$text, tooltip:$tooltip, class:""}'

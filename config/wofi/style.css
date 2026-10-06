@@ -1,0 +1,106 @@
+/* =============================================================
+   wofi — estilo By-LeyzS adaptado (paleta pywal, a juego con waybar)
+   Colores dinámicos: ~/.cache/wal/colors-waybar.css
+   ============================================================= */
+@import url('__HOME__/.cache/wal/colors-waybar.css');
+
+window {
+  margin: 0px;
+  background-color: transparent;
+  border: none;
+  font-family: "JetBrainsMono Nerd Font", monospace;
+  font-size: 14px;
+}
+
+/* Caja principal: píldora grande como los módulos de la barra */
+#outer-box {
+  margin: 0px;
+  border: 2px solid @color9;
+  border-radius: 15px;
+  background-color: alpha(@background, 0.97);
+  padding: 8px;
+}
+
+/* Campo de búsqueda */
+#input {
+  margin: 8px;
+  border: 2px solid @color9;
+  border-radius: 12px;
+  color: @foreground;
+  background-color: alpha(@color9, 0.12);
+  padding: 8px 12px;
+  outline: none;
+  box-shadow: none;
+  caret-color: @color9;
+}
+
+#input:focus {
+  border: 2px solid @color9;
+  outline: none;
+  box-shadow: none;
+}
+
+#input image {
+  color: @color9;
+}
+
+#prompt {
+  color: @foreground;
+  margin-right: 5px;
+}
+
+/* Elementos de la lista */
+#text {
+  margin: 0px 5px;
+  border: none;
+  color: @foreground;
+  background-color: transparent;
+}
+
+#entry {
+  padding: 6px;
+  border-radius: 12px;
+  background-color: transparent;
+}
+
+#entry:selected {
+  background-color: @color9;
+  border-radius: 12px;
+  outline: none;
+}
+
+#entry:selected #text {
+  font-weight: bold;
+  color: @background;
+  background-color: transparent;
+}
+
+#entry:selected * {
+  background-color: transparent;
+  color: @background;
+}
+
+#entry:hover {
+  background-color: alpha(@color9, 0.35);
+  border-radius: 12px;
+}
+
+/* Iconos */
+#img {
+  margin-right: 10px;
+  border-radius: 4px;
+  background-color: transparent;
+}
+
+#inner-box {
+  margin: 5px;
+  border: none;
+  padding: 5px;
+  background-color: transparent;
+}
+
+#scroll {
+  margin: 0px;
+  background-color: transparent;
+  border: none;
+}

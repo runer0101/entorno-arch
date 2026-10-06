@@ -1,0 +1,48 @@
+#!/bin/bash
+# Módulo waybar: contador de updates + tooltip con ficha por paquete.
+# Lee los caches que escribe ArchUpdates.timer (script Updates).
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/Updates.txt"
+OFFICIAL="${CACHE%.txt}-official.txt"
+AUR="${CACHE%.txt}-aur.txt"
+MAX_PKGS=6
+
+count=$(cat "$CACHE" 2>/dev/null)
+case "$count" in ''|*[!0-9]*) count=0 ;; esac
+
+class="clean"
+[ "$count" -gt 0 ] && class="has-updates"
+
+icon="󰚰"
+text="<span font='JetBrainsMono Nerd Font' color='#e0af68'>${icon} ${count}</span>"
+
+nl=$'\n'
+
+# Ficha por paquete: nombre resaltado, debajo el cambio de versión.
+# Entrada: archivo con líneas "pkg viejo -> nuevo" + etiqueta de origen.
+format_cards() {
+    awk -v origin="$2" '{
+        printf "<b><span foreground=\"#c0caf5\">%s</span></b> <span foreground=\"#565f89\" size=\"smaller\">(%s)</span>\n", $1, origin
+        printf "   tienes la <span foreground=\"#f7768e\">%s</span>, sale la <span foreground=\"#9ece6a\">%s</span>\n", $2, $4
+    }' "$1" 2>/dev/null
+}
+
+if [ "$count" -eq 0 ]; then
+    tooltip="<span foreground='#9ece6a'><b>✓ Tu sistema está al día</b></span>${nl}<span foreground='#565f89' size='smaller'>No hay nada que actualizar</span>"
+else
+    if [ "$count" -eq 1 ]; then
+        header="<span foreground='#e0af68'><b>Hay 1 programa con versión nueva</b></span>"
+    else
+        header="<span foreground='#e0af68'><b>Hay ${count} programas con versión nueva</b></span>"
+    fi
+
+    cards=$( { format_cards "$OFFICIAL" "repo oficial"; format_cards "$AUR" "AUR"; } | head -n $((MAX_PKGS * 2)) )
+    shown=$(( $(echo "$cards" | grep -c '^<b>') ))
+    hidden=$((count - shown))
+
+    tooltip="${header}${nl}${nl}${cards}"
+    [ "$hidden" -gt 0 ] && tooltip+="${nl}<span foreground='#565f89'>… y ${hidden} programas más</span>"
+    tooltip+="${nl}${nl}<span foreground='#7dcfff'>󰍽 Un click aquí las instala todas</span>"
+fi
+
+jq -nc --arg text "$text" --arg tooltip "$tooltip" --arg class "$class" \
+    '{text:$text, tooltip:$tooltip, class:$class}'

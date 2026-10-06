@@ -1,0 +1,364 @@
+@import "../../.cache/wal/colors-waybar.css"; /* Bu ana pywal dosyan */
+/* ============================================================
+   1. ANA PANEL (Dış Çerçeve)
+   ============================================================ */
+.control-center {
+    background-color: rgb(0, 0, 0);
+    border: 2px solid @color9; /* Vurgu rengin @color9 oldu! 🔴 */
+    border-radius: 25px;
+    margin: 15px;
+    padding: 15px;
+}
+
+/* ============================================================
+   2. ÜST BUTONLAR (Dar ve Simetrik Dizilim) 📏
+   ============================================================ */
+.widget-buttons-grid {
+    background-color: rgba(255, 255, 255, 0.05);
+    border: 2px solid @color9;
+    border-radius: 10px;
+    padding: 10px;
+    margin: 10px 5px;
+}
+
+.widget-buttons-grid button:hover {
+    color: @color9;
+    background: transparent; /* Arka planın değişmemesi için sabit tutuyoruz */
+}
+
+.widget-buttons-grid > box {
+}
+
+/* Botones de ACCIÓN (abrir aparatos, bloquear, salir, apagar):
+   caja neutra, icono blanco. No representan un estado. */
+.widget-buttons-grid button {
+    background-color: rgba(255, 255, 255, 0.06);
+    color: #ffffff;
+    font-size: 18px;
+    padding: 8px;
+    margin: 4px 6px;
+    min-width: 34px;
+    border: 2px solid rgba(255, 255, 255, 0.14);
+    border-radius: 12px;
+    transition: all 0.3s ease;
+    box-shadow: none;
+}
+
+/* Çöp kutusu ikonunu sağa yasla ve rengini ayarla */
+.widget-title > box > button {
+    color: @color9;
+    background: transparent;
+}
+
+
+
+/* DND (DO NOT DISTURB) */
+.widget-dnd {
+  margin: 10px 6px;
+}
+
+.widget-dnd > switch {
+  background: #111111;
+  border-radius: 14px;
+  padding: 2px;
+}
+
+.widget-dnd > switch:checked {
+  background: @color9; /* İŞTE RENK BURADAN GELİYOR! */
+}
+
+.widget-dnd > switch slider {
+  background: #111111;
+  border-radius: 10px;
+}
+
+/* ============================================================
+   5. BİLDİRİM KATİLİ (O GRİDEN KURTULUŞ) ⚔️
+   ============================================================ */
+
+/* Her şeyi, ama HER ŞEYİ sıfırlıyoruz */
+.widget-notifications,
+.control-center-list,
+.control-center-list-row,
+.notification-row,
+.notification-background,
+.notification,
+.notification-content,
+.notification-group,
+.notification-group-headers {
+    all: unset;
+    background: transparent; /* Aralardan sızan o griyi burada boğuyoruz */
+    box-shadow: none;
+    border: none;
+    outline: none;
+}
+
+.notification-row {
+    margin: 8px;
+}
+
+.notification-background {
+    background-color: rgb(0, 0, 0);
+    border: 2px solid @color9;
+    border-radius: 20px;
+    color: @color9;
+    padding: 12px;
+}
+
+/* Popups (toasts): solo el cuadro del mensaje, sin marco/fondo detrás. */
+.floating-notifications,
+.floating-notifications.background,
+.notification-window {
+    background: transparent;
+    box-shadow: none;
+    border: none;
+}
+
+.summary { 
+    font-size: 16px; 
+    color: #ffffff; 
+}
+
+.body { 
+    font-size: 14px; 
+    color: #ffffff; 
+}
+
+
+
+
+/* Yazıların düzgün görünmesi için hiyerarşiyi kuralım */
+.summary {
+    font-weight: 800;
+    font-size: 1rem;
+    color: @color9;
+    margin-bottom: 4px;
+}
+
+.body {
+    font-size: 0.85rem;
+    color: #ffffff;
+}
+
+/* Resim ayarı */
+.image {
+    margin: 5px 15px 5px 0px;
+    border-radius: 10px;
+}
+
+/* Gruplanmış bildirimlerin (Hyprshot gibi) başlığı */
+.notification-group-headers {
+    margin: 5px 10px;
+    font-weight: bold;
+    color: #ffffff;
+}
+
+/* ============================================================
+  4. BİLDİRİM YAZILARI VE DND
+   ============================================================ */
+.widget-title, .widget-dnd {
+    font-size: 20px;
+    color: #ffffff;
+    margin: 1px 1px;
+}
+
+/* ============================================================
+   3. MEDIA PLAYER (MPRIS) - SABİT GENİŞLİK 📏
+   ============================================================ */
+.widget-mpris {
+    min-width: 200px; /* Panelin genişliğine yakın bir değer 📦 */
+    /* Recuadro en forma de PÍLDORA: borde de acento y esquinas muy
+       redondeadas, para que el reproductor quede como una píldora. */
+    background-color: rgba(255, 255, 255, 0.05);
+    border: 2px solid @color9;
+    border-radius: 26px;
+    padding: 10px 14px;
+    margin: 10px 5px;
+}
+
+/* ============================================================
+   6. VOLUMEN (barra deslizante) y botones interruptores
+   ============================================================ */
+.widget-volume {
+    background-color: rgba(255, 255, 255, 0.05);
+    border: 2px solid @color9;
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin: 10px 5px;
+    color: #ffffff;
+    font-size: 16px;
+}
+
+/* El icono 󰕾 delante de la barra */
+.widget-volume > box > label {
+    color: @color9;
+    font-size: 20px;
+    margin-right: 8px;
+}
+
+/* Riel de la barra */
+.widget-volume trough {
+    background-color: rgba(255, 255, 255, 0.15);
+    border-radius: 10px;
+    min-height: 8px;
+}
+
+/* Parte ya recorrida */
+.widget-volume highlight {
+    background-color: @color9;
+    border-radius: 10px;
+    min-height: 8px;
+}
+
+/* Perilla que se arrastra */
+.widget-volume slider {
+    background-color: #ffffff;
+    border: 2px solid @color9;
+    border-radius: 50%;
+    min-height: 16px;
+    min-width: 16px;
+    margin: -6px;
+}
+
+.widget-volume slider:hover {
+    background-color: @color9;
+    border-color: #ffffff;
+}
+
+/* Botón para desplegar el volumen por aplicación */
+.widget-volume button {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    color: @color9;
+    padding: 0px 6px;
+}
+
+.per-app-volume {
+    background-color: rgba(255, 255, 255, 0.04);
+    border-radius: 8px;
+    padding: 6px;
+    margin-top: 8px;
+}
+
+/* ============================================================
+   7. INTERRUPTORES: los 3 primeros botones (Bluetooth, WiFi,
+   Sonido) muestran estado. APAGADO = caja y icono apagados;
+   ENCENDIDO = caja del color del tema con el icono en negativo.
+   ============================================================ */
+
+/* Seleccionamos por .toggle, no por posición: en config.json solo Bluetooth,
+   WiFi y Sonido son "type": "toggle", así que .toggle son exactamente esos 3.
+   El antiguo :nth-child(-n+3) dependía del orden y se rompía al reordenar.
+
+   GTK4 marca el estado del ToggleButton con la pseudoclase :checked (verificado:
+   un Gtk.ToggleButton nace con la clase .toggle y activo pone el flag CHECKED).
+   NO con la clase .active — eso era GTK3, y la descripción de configSchema.json
+   sigue diciéndolo, pero está desfasada. */
+
+/* El icono va como background-image, no como texto. GTK4 no puede cambiar el
+   texto de un label desde CSS, pero la imagen de fondo SÍ reacciona a :checked.
+   Así el icono cambia solo, sin `swaync-client -R` — recargar la config
+   reconstruía el panel entero y por eso se movía el brillo y parpadeaban los
+   demás botones. El label de estos 3 va vacío en config.json.
+   Los PNG salen de los glifos de tu Nerd Font (ver scripts/genicons). */
+.widget-buttons-grid button.toggle {
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 20px 20px;
+    min-width: 34px;
+    min-height: 34px;
+}
+
+/* APAGADO / desconectado */
+.widget-buttons-grid button.toggle {
+    background-color: rgba(255, 255, 255, 0.04);
+    color: rgba(255, 255, 255, 0.35);
+    border: 2px solid rgba(255, 255, 255, 0.10);
+}
+
+/* Un botón por posición: 1 Bluetooth · 2 WiFi · 3 Sonido.
+   Verificado que GTK4 sí resuelve :nth-child sobre los flowboxchild. */
+.widget-buttons-grid flowboxchild:nth-child(1) button.toggle {
+    background-image: url("__HOME__/.config/swaync/icons/toggle-bt-off.png");
+}
+.widget-buttons-grid flowboxchild:nth-child(1) button.toggle:checked {
+    background-image: url("__HOME__/.config/swaync/icons/toggle-bt-on.png");
+}
+
+.widget-buttons-grid flowboxchild:nth-child(2) button.toggle {
+    background-image: url("__HOME__/.config/swaync/icons/toggle-wifi-off.png");
+}
+.widget-buttons-grid flowboxchild:nth-child(2) button.toggle:checked {
+    background-image: url("__HOME__/.config/swaync/icons/toggle-wifi-on.png");
+}
+
+.widget-buttons-grid flowboxchild:nth-child(3) button.toggle {
+    background-image: url("__HOME__/.config/swaync/icons/toggle-vol-off.png");
+}
+.widget-buttons-grid flowboxchild:nth-child(3) button.toggle:checked {
+    background-image: url("__HOME__/.config/swaync/icons/toggle-vol-on.png");
+}
+
+/* ENCENDIDO / conectado — icono y cuadro cambian juntos */
+.widget-buttons-grid button.toggle:checked {
+    background-color: @color9;
+    color: @background;
+    border: 2px solid @color9;
+}
+
+.widget-buttons-grid button.toggle:hover {
+    border-color: @color9;
+    color: @color9;
+}
+
+.widget-buttons-grid button.toggle:checked:hover {
+    background-color: @color9;
+    color: @background;
+    border-color: #ffffff;
+}
+
+/* ============================================================
+   8. BRILLO (misma barra que el volumen)
+   ============================================================ */
+.widget-backlight {
+    background-color: rgba(255, 255, 255, 0.05);
+    border: 2px solid @color9;
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin: 10px 5px 0px 5px;
+    color: #ffffff;
+    font-size: 16px;
+}
+
+.widget-backlight > box > label {
+    color: @color9;
+    font-size: 20px;
+    margin-right: 8px;
+}
+
+.widget-backlight trough {
+    background-color: rgba(255, 255, 255, 0.15);
+    border-radius: 10px;
+    min-height: 8px;
+}
+
+.widget-backlight highlight {
+    background-color: @color9;
+    border-radius: 10px;
+    min-height: 8px;
+}
+
+.widget-backlight slider {
+    background-color: #ffffff;
+    border: 2px solid @color9;
+    border-radius: 50%;
+    min-height: 16px;
+    min-width: 16px;
+    margin: -6px;
+}
+
+.widget-backlight slider:hover {
+    background-color: @color9;
+    border-color: #ffffff;
+}
