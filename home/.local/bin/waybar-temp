@@ -1,0 +1,67 @@
+#!/bin/bash
+# Módulo waybar: temperatura del CPU en la barra + cuadro con todos los
+# sensores (CPU, GPU, SSD, RAM, ventiladores) en el tooltip.
+
+J=$(sensors -j 2>/dev/null)
+
+# Extrae un entero de un input jq, o vacío si no existe
+val() { printf '%s' "$J" | jq -r "$1 // empty" 2>/dev/null | cut -d. -f1; }
+
+cpu=$(val '.["k10temp-pci-00c3"].Tctl.temp1_input')
+gpu=$(val '.["amdgpu-pci-0600"].edge.temp1_input')
+gpu_w=$(val '.["amdgpu-pci-0600"].PPT.power1_input')
+ssd=$(val '.["nvme-pci-0500"].Composite.temp1_input')
+ram=$(val '.["spd5118-i2c-21-50"].temp1.temp1_input')
+fan1=$(val '.["hp-isa-0000"].fan1.fan1_input')
+fan2=$(val '.["hp-isa-0000"].fan2.fan2_input')
+
+# Respaldo si no hubo sensores
+if [ -z "$cpu" ]; then
+    raw=$(cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null || echo 0)
+    cpu=$(( raw / 1000 ))
+fi
+
+# Color e icono según la temperatura del CPU
+if   [ "$cpu" -lt 50 ]; then class="cold";   color="#9ece6a"; icon="󰔏"
+elif [ "$cpu" -lt 70 ]; then class="normal"; color="#9ece6a"; icon="󰔏"
+elif [ "$cpu" -lt 85 ]; then class="warm";   color="#e0af68"; icon="󰔐"
+else                         class="hot";    color="#f7768e"; icon="󰸁"
+fi
+
+text="<span font='JetBrainsMono Nerd Font' color='${color}'>${icon} ${cpu}°C</span>"
+
+# Color por umbral para cada línea del tooltip
+col_for() {
+    if   [ "$1" -lt 60 ]; then echo "#9ece6a"
+    elif [ "$1" -lt 80 ]; then echo "#e0af68"
+    else                       echo "#f7768e"
+    fi
+}
+
+nl=$'\n'
+row() {
+    local pad=$((13 - ${#1})); [ "$pad" -lt 1 ] && pad=1
+    printf ' %s%*s%s' "$1" "$pad" '' "$2"
+}
+temp_row() {  # etiqueta, valor-en-°C → fila sin salto (vacío si no hay valor)
+    [ -z "$2" ] && return
+    local c; c=$(col_for "$2")
+    row "$1" "<span foreground='${c}'>${2}°C</span>"
+}
+add() { [ -n "$1" ] && tt+="${1}${nl}"; }  # agrega línea + salto si no está vacía
+
+tt="<span foreground='${color}'><b>󰔐 Temperaturas</b></span>${nl}"
+tt+="<span foreground='#565f89'>──────────────────────────</span>${nl}"
+add "$(temp_row 'CPU' "$cpu")"
+add "$(temp_row 'GPU' "$gpu")"
+[ -n "$gpu_w" ] && add "$(row 'GPU consumo' "${gpu_w} W")"
+add "$(temp_row 'SSD (NVMe)' "$ssd")"
+add "$(temp_row 'RAM' "$ram")"
+if [ -n "$fan1" ] || [ -n "$fan2" ]; then
+    tt+="<span foreground='#565f89'>──────────────────────────</span>${nl}"
+    [ -n "$fan1" ] && tt+="$(row 'Ventilador 1' "<span foreground='#7dcfff'>${fan1} RPM</span>")${nl}"
+    [ -n "$fan2" ] && tt+="$(row 'Ventilador 2' "<span foreground='#7dcfff'>${fan2} RPM</span>")${nl}"
+fi
+tooltip="<span font_family='JetBrainsMono Nerd Font'>${tt%${nl}}</span>"
+
+jq -nc --arg text "$text" --arg tooltip "$tooltip" --arg class "$class" '{text:$text, tooltip:$tooltip, class:$class}'

@@ -1,0 +1,200 @@
+#!/bin/bash
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/waybar-network-prev"
+
+iface=$(ip route show default 2>/dev/null | awk '{print $5; exit}')
+
+if [ -z "$iface" ]; then
+    jq -nc '{text:"<span color=\"#f7768e\">󰈂 sin conexión</span>", tooltip:"Sin conexión", class:"offline"}'
+    rm -f "$CACHE"
+    exit 0
+fi
+
+ip_addr=$(ip -4 addr show dev "$iface" 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1 | head -1)
+
+class="online"
+case "$ip_addr" in
+    169.254.*|"") class="local" ;;
+esac
+
+rx_now=$(cat "/sys/class/net/$iface/statistics/rx_bytes" 2>/dev/null || echo 0)
+tx_now=$(cat "/sys/class/net/$iface/statistics/tx_bytes" 2>/dev/null || echo 0)
+t_now=$(date +%s.%N)
+
+down_bps=0
+up_bps=0
+write_cache=1
+if [ -f "$CACHE" ]; then
+    # El cache guarda además la última tasa calculada (campos 5 y 6). Los caches
+    # viejos de 4 campos siguen valiendo: los dos últimos quedan vacíos → 0.
+    read -r prev_iface rx_prev tx_prev t_prev down_prev up_prev < "$CACHE"
+    if [ "$prev_iface" = "$iface" ]; then
+        # Con dos monitores waybar corre este script UNA VEZ POR BARRA, separadas
+        # por milisegundos. La segunda pasada mediría contra un instante casi
+        # idéntico (d≈0.02 s) y escupía tasas absurdas: se llegaron a ver 5.2M/s
+        # en una barra y 4K/s en la otra en el mismo momento. Por debajo de 1 s
+        # reutilizamos la tasa ya calculada y no tocamos el cache, así ambas
+        # barras muestran el mismo número y es el correcto.
+        if awk -v t1="$t_now" -v t0="${t_prev:-0}" 'BEGIN{exit !((t1-t0) >= 1)}'; then
+            down_bps=$(awk -v a="$rx_now" -v b="$rx_prev" -v t1="$t_now" -v t0="$t_prev" 'BEGIN{d=t1-t0; if(d<=0)d=1; v=(a-b)/d; if(v<0)v=0; printf "%.0f", v}')
+            up_bps=$(awk -v a="$tx_now" -v b="$tx_prev" -v t1="$t_now" -v t0="$t_prev" 'BEGIN{d=t1-t0; if(d<=0)d=1; v=(a-b)/d; if(v<0)v=0; printf "%.0f", v}')
+        else
+            down_bps=${down_prev:-0}
+            up_bps=${up_prev:-0}
+            write_cache=0
+        fi
+    fi
+fi
+if [ "$write_cache" = 1 ]; then
+    printf '%s %s %s %s %s %s\n' "$iface" "$rx_now" "$tx_now" "$t_now" "$down_bps" "$up_bps" > "$CACHE.$$"
+    mv -f "$CACHE.$$" "$CACHE"
+fi
+
+human() {
+    local bytes="$1"
+    if [ "$bytes" -ge 1073741824 ]; then
+        awk -v b="$bytes" 'BEGIN{printf "%.1fG", b/1073741824}'
+    elif [ "$bytes" -ge 1048576 ]; then
+        awk -v b="$bytes" 'BEGIN{printf "%.1fM", b/1048576}'
+    elif [ "$bytes" -ge 1024 ]; then
+        awk -v b="$bytes" 'BEGIN{printf "%.0fK", b/1024}'
+    else
+        echo "${bytes}B"
+    fi
+}
+
+down_h=$(human "$down_bps")
+up_h=$(human "$up_bps")
+total_h=$(human $((down_bps + up_bps)))
+
+# Barra: solo velocidad total. El desglose subida/bajada va en el tooltip.
+text="<span font='JetBrainsMono Nerd Font' color='#7dcfff'>󰓅 ${total_h}/s</span>"
+
+# ── Tooltip: cuadro con la info de la conexión ──
+nl=$'\n'
+ssid=$(iwgetid -r 2>/dev/null)
+
+# Señal y banda (solo WiFi)
+signal_line=""
+band_line=""
+if [ -n "$ssid" ]; then
+    iw_link=$(iw dev "$iface" link 2>/dev/null)
+    dbm=$(awk '/signal:/{print $2; exit}' <<< "$iw_link")
+    if [ -n "$dbm" ]; then
+        pct=$(( 2 * (dbm + 100) )); [ "$pct" -gt 100 ] && pct=100; [ "$pct" -lt 0 ] && pct=0
+        if   [ "$pct" -ge 75 ]; then bars="▂▄▆█"; sig_col="#9ece6a"
+        elif [ "$pct" -ge 50 ]; then bars="▂▄▆░"; sig_col="#9ece6a"
+        elif [ "$pct" -ge 25 ]; then bars="▂▄░░"; sig_col="#e0af68"
+        else                         bars="▂░░░"; sig_col="#f7768e"
+        fi
+        signal_line="Señal:      <span foreground='${sig_col}'>${bars}  ${pct}%</span>${nl}"
+    fi
+    freq=$(awk '/freq:/{print int($2); exit}' <<< "$iw_link")
+    if [ -n "$freq" ]; then
+        [ "$freq" -ge 4900 ] && band="5 GHz" || band="2.4 GHz"
+        chan=$(iw dev "$iface" info 2>/dev/null | awk '/channel/{print $2; exit}')
+        [ -n "$chan" ] && band="${band} · canal ${chan}"
+        band_line="Banda:      ${band}${nl}"
+    fi
+    link_rate=$(awk '/tx bitrate:/{printf "%d Mbit/s", $3; exit}' <<< "$iw_link")
+    header="󰖩 ${ssid}"
+
+    # Contraseña de la red. El perfil de NetworkManager NO tiene por qué llamarse
+    # como el SSID (aquí el SSID es "BIBLIOTECA" y el perfil "BIBLIOTECA-5G"), así
+    # que se busca por conexión activa de tipo wifi y no por nombre de red.
+    # nmcli -s devuelve el secreto sin pasar por polkit al ser la sesión dueña.
+    profile=$(nmcli -t -f NAME,TYPE connection show --active 2>/dev/null \
+              | awk -F: '$2=="802-11-wireless"{print $1; exit}')
+    if [ -n "$profile" ]; then
+        wifi_pass=$(nmcli -s -g 802-11-wireless-security.psk connection show "$profile" 2>/dev/null)
+        # Sin psk: red abierta, o WPA-Enterprise (que usa credenciales de usuario).
+        if [ -z "$wifi_pass" ]; then
+            keymgmt=$(nmcli -g 802-11-wireless-security.key-mgmt connection show "$profile" 2>/dev/null)
+            case "$keymgmt" in
+                "")       wifi_pass="<span foreground='#565f89'>red abierta</span>" ;;
+                *eap*)    wifi_pass=$(nmcli -s -g 802-1x.password connection show "$profile" 2>/dev/null)
+                          [ -z "$wifi_pass" ] && wifi_pass="<span foreground='#565f89'>empresarial (802.1X)</span>" ;;
+                *)        wifi_pass="<span foreground='#565f89'>no disponible</span>" ;;
+            esac
+        else
+            # La contraseña es texto arbitrario: escapar & y < ANTES de envolverla,
+            # o pango se come el tooltip entero por marcado inválido.
+            esc="${wifi_pass//&/&amp;}"
+            esc="${esc//</&lt;}"
+            wifi_pass="<span foreground='#e0af68'>${esc}</span>"
+        fi
+    fi
+else
+    header="󰈀 Cable de red (${iface})"
+fi
+
+# Ping: cacheado 30 s y medido en segundo plano para no frenar la barra.
+# Timeout holgado (5 s): con latencias de varios segundos, -W2 daba falsos "sin internet".
+PING_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/waybar-ping"
+if [ ! -f "$PING_CACHE" ] || [ $(( $(date +%s) - $(stat -c %Y "$PING_CACHE") )) -ge 30 ]; then
+    # .$$ en el temporal: las dos barras lanzan este ping a la vez y con un
+    # nombre fijo se pisaban el mismo fichero a medio escribir.
+    # Un solo paquete a un solo host daba falsos "sin internet": si ESE paquete
+    # se perdía (habitual en WiFi), la cache quedaba vacía 30 s enteros. Ahora se
+    # prueban dos hosts y basta con que UNO responda para dar la salida por buena.
+    ( ms=""
+      for host in 1.1.1.1 8.8.8.8; do
+          ms=$(LC_ALL=C ping -c1 -W3 "$host" 2>/dev/null | awk -F'time=' '/time=/{printf "%d", $2; exit}')
+          [ -n "$ms" ] && break
+      done
+      printf '%s' "$ms" > "$PING_CACHE.$$"
+      mv -f "$PING_CACHE.$$" "$PING_CACHE" ) &
+fi
+ping_ms=$(cat "$PING_CACHE" 2>/dev/null)
+if [ -n "$ping_ms" ]; then
+    if   [ "$ping_ms" -lt 50 ];  then ping_col="#9ece6a"
+    elif [ "$ping_ms" -lt 100 ]; then ping_col="#e0af68"
+    else                              ping_col="#f7768e"
+    fi
+    ping_txt="<span foreground='${ping_col}'>${ping_ms} ms</span>"
+else
+    ping_txt="<span foreground='#f7768e'>sin respuesta</span>"
+    # Distinguir "sin red local" (gateway inalcanzable) de "sin internet"
+    # (gateway OK pero el ping externo caducó). Solo este último avisa en la barra.
+    # Antes de alarmar se corrobora con NetworkManager: si su chequeo dice "full"
+    # hay salida a internet y el ping se perdió puntualmente → NO mostrar nada raro
+    # (se deja la velocidad normal en la barra).
+    if [ -f "$PING_CACHE" ] && [ "$(nmcli networking connectivity 2>/dev/null)" != "full" ]; then
+        gateway=$(ip route show default 2>/dev/null | awk '{print $3; exit}')
+        if [ -n "$gateway" ] && LC_ALL=C ping -c1 -W1 "$gateway" >/dev/null 2>&1; then
+            text="<span font='JetBrainsMono Nerd Font' color='#f7768e'>󰤫 sin internet</span>"
+            class="no-internet"
+        else
+            text="<span font='JetBrainsMono Nerd Font' color='#f7768e'>󰈂 sin red local</span>"
+            class="offline"
+        fi
+    fi
+fi
+
+# Consumo acumulado desde el arranque (contadores de la interfaz)
+total_down=$(human "$rx_now")
+total_up=$(human "$tx_now")
+
+# Relleno por caracteres (no bytes): printf desalinea con ñ/tildes
+row() {
+    # Ancho 12: "Contraseña" ya son 10 caracteres y con el ancho antiguo (10) su
+    # valor arrancaba una columna antes que el del resto de filas.
+    local pad=$((12 - ${#1})); [ "$pad" -lt 1 ] && pad=1
+    printf ' %s%*s%s' "$1" "$pad" '' "$2"
+}
+
+tooltip="<span foreground='#7dcfff'><b>${header}</b></span>${nl}"
+tooltip+="<span foreground='#565f89'>────────────────────────────</span>${nl}"
+if [ -n "$signal_line" ] || [ -n "$band_line" ] || [ -n "$link_rate" ]; then
+    [ -n "$signal_line" ] && tooltip+="$(row 'Señal' "<span foreground='${sig_col}'>${bars}  ${pct}%</span>")${nl}"
+    [ -n "$band_line" ]   && tooltip+="$(row 'Banda' "${band}")${nl}"
+    [ -n "$link_rate" ]   && tooltip+="$(row 'Enlace' "${link_rate} <span foreground='#565f89' size='smaller'>(máx negociado)</span>")${nl}"
+    [ -n "$wifi_pass" ]   && tooltip+="$(row 'Contraseña' "${wifi_pass}")${nl}"
+    tooltip+="${nl}"
+fi
+tooltip+="$(row 'Ping' "${ping_txt}")${nl}"
+tooltip+="$(row 'Bajando' "<span foreground='#f7768e'>󰇚 ${down_h}/s</span>")${nl}"
+tooltip+="$(row 'Subiendo' "<span foreground='#9ece6a'>󰕒 ${up_h}/s</span>")${nl}${nl}"
+tooltip+="$(row 'Consumo' "󰇚 ${total_down}  󰕒 ${total_up} <span foreground='#565f89' size='smaller'>(desde el arranque)</span>")"
+tooltip="<span font_family='JetBrainsMono Nerd Font'>${tooltip}</span>"
+
+jq -nc --arg text "$text" --arg tooltip "$tooltip" --arg class "$class" '{text:$text, tooltip:$tooltip, class:$class}'

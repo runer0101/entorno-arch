@@ -1,0 +1,35 @@
+#!/bin/bash
+# Módulo waybar: uso de RAM en la barra + cuadro (uso, caché, swap y
+# procesos que más memoria consumen) en el tooltip.
+read -r total avail cached swaptot swapfree <<< "$(awk '
+    /^MemTotal/{t=$2} /^MemAvailable/{a=$2} /^Cached:/{c=$2}
+    /^SwapTotal/{st=$2} /^SwapFree/{sf=$2}
+    END{print t, a, c, st, sf}' /proc/meminfo)"
+
+used=$(( total - avail ))
+pct=$(( used * 100 / total ))
+gb() { awk -v k="$1" 'BEGIN{printf "%.1f", k/1024/1024}'; }
+
+icon=""
+ucol="#bb9af7"; [ "$pct" -ge 75 ] && ucol="#e0af68"; [ "$pct" -ge 90 ] && ucol="#f7768e"
+text="<span font='JetBrainsMono Nerd Font' color='${ucol}'>${icon} ${pct}%</span>"
+
+swap_used=$(( swaptot - swapfree ))
+swap_pct=0; [ "$swaptot" -gt 0 ] && swap_pct=$(( swap_used * 100 / swaptot ))
+
+nl=$'\n'
+row() { local pad=$((13 - ${#1})); [ "$pad" -lt 1 ] && pad=1; printf ' %s%*s%s' "$1" "$pad" '' "$2"; }
+
+tt="<span foreground='${ucol}'><b> RAM  ${pct}%</b></span>${nl}"
+tt+="<span foreground='#565f89'>──────────────────────────</span>${nl}"
+tt+="$(row 'En uso' "<span foreground='${ucol}'>$(gb "$used") GB</span> / $(gb "$total") GB")${nl}"
+tt+="$(row 'Disponible' "$(gb "$avail") GB")${nl}"
+tt+="$(row 'Caché' "$(gb "$cached") GB <span foreground='#565f89' size='smaller'>(liberable)</span>")${nl}"
+tt+="$(row 'Swap' "$(gb "$swap_used") / $(gb "$swaptot") GB (${swap_pct}%)")${nl}"
+tt+="<span foreground='#565f89'>──── lo que más RAM usa ────</span>${nl}"
+while read -r pmem comm; do
+    tt+="$(row " ${comm:0:14}" "<span foreground='#bb9af7'>${pmem}%</span>")${nl}"
+done < <(ps -eo %mem,comm --sort=-%mem --no-headers | head -3)
+tooltip="<span font_family='JetBrainsMono Nerd Font'>${tt%${nl}}</span>"
+
+jq -nc --arg text "$text" --arg tooltip "$tooltip" '{text:$text, tooltip:$tooltip, class:""}'

@@ -1,0 +1,110 @@
+#!/bin/bash
+# Módulo waybar: uso de la GPU NVIDIA en la barra + cuadro (VRAM, temp,
+# consumo, reloj y procesos) en el tooltip.
+#
+# Coste: este script corre UNA VEZ POR BARRA (hay 2 monitores). Cada llamada a
+# nvidia-smi despierta la dGPU e impide que entre en D3cold, así que aquí se
+# reduce al mínimo: se mira primero el estado de energía por sysfs (gratis) y
+# solo se invoca nvidia-smi si la GPU ya está despierta.
+
+NAME_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/waybar-gpu-name"
+
+out() {  # texto, tooltip, clase
+    jq -nc --arg text "$1" --arg tooltip "$2" --arg class "$3" \
+        '{text:$text, tooltip:$tooltip, class:$class}'
+    exit 0
+}
+
+if ! command -v nvidia-smi >/dev/null 2>&1; then
+    out "<span font='JetBrainsMono Nerd Font' color='#9ece6a'>󰢮 N/A</span>" "nvidia-smi no disponible" ""
+fi
+
+# ── ¿Está dormida? Preguntarlo por sysfs no la despierta; nvidia-smi sí ──
+pmdir=""
+for d in /sys/bus/pci/devices/*/; do
+    [ "$(cat "$d/vendor" 2>/dev/null)" = "0x10de" ] || continue
+    case "$(cat "$d/class" 2>/dev/null)" in 0x0300*|0x0302*) pmdir="$d"; break ;; esac
+done
+
+if [ -n "$pmdir" ] && [ "$(cat "$pmdir/power/runtime_status" 2>/dev/null)" = "suspended" ]; then
+    nl=$'\n'
+    tt="<span foreground='#565f89'><b>󰢮 GPU dormida</b></span>${nl}"
+    tt+="<span foreground='#565f89'>──────────────────────────</span>${nl}"
+    tt+=" La NVIDIA está apagada para ahorrar batería.${nl}"
+    tt+=" Se despierta sola en cuanto algo la use."
+    out "<span font='JetBrainsMono Nerd Font' color='#565f89'>󰢮 ―</span>" \
+        "<span font_family='JetBrainsMono Nerd Font'>${tt}</span>" "asleep"
+fi
+
+# ── Una sola consulta para todas las métricas ──
+IFS=',' read -r util mem_used mem_total temp power clock <<< "$(
+    nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,clocks.gr \
+        --format=csv,noheader,nounits 2>/dev/null)"
+util=$(echo "$util" | xargs); mem_used=$(echo "$mem_used" | xargs); mem_total=$(echo "$mem_total" | xargs)
+temp=$(echo "$temp" | xargs);  power=$(echo "$power" | xargs);     clock=$(echo "$clock" | xargs)
+
+# nvidia-smi puede existir y aun así fallar (driver en mal estado tras un
+# resume, NVRM Xid...). Antes eso reventaba en la división de VRAM y dejaba la
+# barra con "󰢮 %" y el tooltip vacío.
+case "$mem_total" in
+    ''|*[!0-9]*) mem_total=0 ;;
+esac
+case "$util" in
+    ''|*[!0-9]*) util="" ;;
+esac
+if [ -z "$util" ] || [ "$mem_total" -eq 0 ]; then
+    nl=$'\n'
+    tt="<span foreground='#f7768e'><b>󰢮 GPU sin respuesta</b></span>${nl}"
+    tt+="<span foreground='#565f89'>──────────────────────────</span>${nl}"
+    tt+=" nvidia-smi está instalado pero no contesta.${nl}"
+    tt+=" Mira: journalctl -b -g NVRM"
+    out "<span font='JetBrainsMono Nerd Font' color='#f7768e'>󰢮 ?</span>" \
+        "<span font_family='JetBrainsMono Nerd Font'>${tt}</span>" "error"
+fi
+
+# El modelo no cambia nunca: se consulta una vez y se guarda en cache.
+if [ -s "$NAME_CACHE" ]; then
+    gname=$(cat "$NAME_CACHE")
+else
+    gname=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | sed -E 's/NVIDIA GeForce //; s/ Laptop GPU//')
+    [ -n "$gname" ] && { printf '%s\n' "$gname" > "$NAME_CACHE.$$" && mv -f "$NAME_CACHE.$$" "$NAME_CACHE"; }
+fi
+
+class=""
+[ "${temp:-0}" -ge 80 ] 2>/dev/null && class="hot"
+[ "$class" != "hot" ] && [ "${util:-0}" -ge 60 ] 2>/dev/null && class="high"
+
+icon="󰢮"
+ucol="#9ece6a"; [ "${util:-0}" -ge 60 ] 2>/dev/null && ucol="#e0af68"; [ "${util:-0}" -ge 85 ] 2>/dev/null && ucol="#f7768e"
+text="<span font='JetBrainsMono Nerd Font' color='${ucol}'>${icon} ${util}%</span>"
+
+col_for() { if [ "$1" -lt 60 ]; then echo "#9ece6a"; elif [ "$1" -lt 80 ]; then echo "#e0af68"; else echo "#f7768e"; fi; }
+vram_pct=$(( mem_used * 100 / mem_total ))
+
+nl=$'\n'
+row() { local pad=$((10 - ${#1})); [ "$pad" -lt 1 ] && pad=1; printf ' %s%*s%s' "$1" "$pad" '' "$2"; }
+
+tt="<span foreground='${ucol}'><b>󰢮 GPU  ${util}%</b></span>${nl}"
+tt+="<span foreground='#565f89'>──────────────────────────</span>${nl}"
+tt+="$(row 'Modelo' "$gname")${nl}"
+tt+="$(row 'VRAM' "${mem_used} / ${mem_total} MiB (${vram_pct}%)")${nl}"
+tt+="$(row 'Temp' "<span foreground='$(col_for "${temp:-0}")'>${temp}°C</span>")${nl}"
+tt+="$(row 'Consumo' "${power} W")${nl}"
+tt+="$(row 'Reloj' "${clock} MHz")${nl}"
+
+# Procesos usando la GPU. Es una segunda invocación de nvidia-smi, así que solo
+# se pregunta cuando hay algo que contar: con la GPU ociosa la lista va vacía.
+if [ "${util:-0}" -gt 0 ] 2>/dev/null || [ "${mem_used:-0}" -gt 200 ] 2>/dev/null; then
+    procs=$(nvidia-smi --query-compute-apps=process_name,used_memory --format=csv,noheader,nounits 2>/dev/null | grep -v '\[N/A\]')
+    if [ -n "$procs" ]; then
+        tt+="<span foreground='#565f89'>──── procesos en la GPU ────</span>${nl}"
+        while IFS=',' read -r pname pmem; do
+            [ -z "$pname" ] && continue
+            pname=$(basename "$(echo "$pname" | xargs)")
+            tt+="$(row " ${pname:0:14}" "<span foreground='#e0af68'>$(echo "$pmem" | xargs) MiB</span>")${nl}"
+        done <<< "$(echo "$procs" | head -3)"
+    fi
+fi
+tooltip="<span font_family='JetBrainsMono Nerd Font'>${tt%${nl}}</span>"
+
+out "$text" "$tooltip" "$class"
