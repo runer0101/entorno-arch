@@ -96,39 +96,59 @@ else
     done
 fi
 
-# ------------------------------------------------------- 1. repo externo
-# Los temas (TokyoNight-zk, TokyoNight-SE, Qogirr-Dark) NO estan en los repos
-# de Arch: vienen del repo gh0stzk-dotfiles. Sin anadirlo, el escritorio
-# arranca sin tema porque apply-gtk.sh no encuentra esos ficheros.
-add_theme_repo() {
-    if grep -q '^\[gh0stzk-dotfiles\]' /etc/pacman.conf 2>/dev/null; then
-        ok "repo gh0stzk-dotfiles ya configurado"
+# ------------------------------------------------------- 1. repos externos
+# El escritorio depende de dos repos que NO vienen en Arch limpio:
+#
+#   chaotic-aur     -> wlogout (el menu de cierre de sesion)
+#   gh0stzk-dotfiles-> TokyoNight-zk, TokyoNight-SE, Qogirr-Dark (los temas)
+#
+# Sin anadirlos, 'pacman -S' aborta en el primer paquete inexistente y no
+# instala NADA. Se anaden solo si faltan.
+add_repo() {
+    local nombre="$1" seccion="$2" servidor="$3"
+    if grep -q "^\[$seccion\]" /etc/pacman.conf 2>/dev/null; then
+        ok "repo $nombre ya configurado"
         return 0
     fi
     if [[ $DRY_RUN -eq 1 ]]; then
-        echo "  anadir [gh0stzk-dotfiles] a /etc/pacman.conf"
+        echo "  anadir [$seccion] a /etc/pacman.conf"
         return 0
     fi
-    warn "Se anade el repo externo gh0stzk-dotfiles a /etc/pacman.conf"
-    warn "  (va por HTTP con TrustAll; es como lo tienes ya en tu maquina)"
+    warn "Se anade el repo externo $nombre a /etc/pacman.conf"
     cp /etc/pacman.conf /etc/pacman.conf.entorno-arch.bak
-    cat >> /etc/pacman.conf <<'REPO'
+    cat >> /etc/pacman.conf <<REPO
 
-[gh0stzk-dotfiles]
+[$seccion]
 SigLevel = Optional TrustAll
-Server = http://gh0stzk.github.io/pkgs/x86_64
+Server = $servidor
 REPO
-    sudo pacman -Sy --noconfirm >/dev/null 2>&1 || true
-    ok "repo anadido (backup en /etc/pacman.conf.entorno-arch.bak)"
+    ok "repo $nombre anadido"
 }
 
 if [[ $DO_PACKAGES -eq 1 ]]; then
-    add_theme_repo
+    add_repo "chaotic-aur" "chaotic-aur" "https://geo-mirror.chaotic.cx/chaotic-aur/x86_64/"
+    add_repo "gh0stzk-dotfiles" "gh0stzk-dotfiles" "http://gh0stzk.github.io/pkgs/x86_64"
+
+    if [[ $DRY_RUN -eq 1 ]]; then
+        echo "  sudo pacman -Sy --noconfirm"
+    else
+        # Sin esto, los repos nuevos no se ven y los paquetes fallarian.
+        sudo pacman -Sy --noconfirm >/dev/null 2>&1 || true
+        ok "bases de datos sincronizadas"
+    fi
+
     info "Instalando paquetes de los repos de Arch (pide sudo)..."
     if [[ $DRY_RUN -eq 1 ]]; then
-        echo "  sudo pacman -S --needed - < packages.txt"
+        echo "  sudo pacman -S --needed --noconfirm - < packages.txt"
     else
-        sudo pacman -S --needed - < "$REPO/packages.txt"
+        # Dos detalles que rompen la instalacion si se omiten:
+        #  --noconfirm -> sin esto pacman pregunta 58 veces y en un contexto
+        #                 no interactivo se queda colgado o falla.
+        #  grep        -> pacman NO ignora las lineas '#' de packages.txt: las
+        #                 intenta instalar como nombres de paquete, con lo que
+        #                 falla la transaccion ENTERA y no instala nada.
+        sudo pacman -S --needed --noconfirm - \
+            < <(grep -vE '^[[:space:]]*#|^[[:space:]]*$' "$REPO/packages.txt")
         ok "paquetes instalados"
     fi
 
