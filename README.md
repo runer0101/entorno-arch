@@ -2,10 +2,10 @@
 
 # entorno-arch
 
-**Mi escritorio en Arch Linux — Hyprland + Waybar + wofi, con 18 rices intercambiables.**
+**Mi escritorio en Arch Linux — Hyprland + Waybar + wofi, con 18 rices intercambiables.**
 
-Copia real de mi máquina, pensada para reconstruir el mismo aspecto
-en otro entorno con Arch o derivados.
+Esta es la copia exacta de mi máquina. El objetivo es recrear el mismo aspecto visual en cualquier otro equipo con Arch Linux o derivados, manteniendo la configuración y los scripts tal cual.
+
 
 [![Arch](https://img.shields.io/badge/arch-linux-1793d1?logo=archlinux&logoColor=white)](https://archlinux.org)
 [![Hyprland](https://img.shields.io/badge/Hyprland-%3E%3D0.56-5b9bd5?logo=hyprland&logoColor=white)](https://hypr.land)
