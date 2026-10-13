@@ -4,8 +4,8 @@
 
 **Mi escritorio en Arch Linux — Hyprland + Waybar + wofi, con 18 rices intercambiables.**
 
-Copia real de la máquina, pensada para reconstruir el mismo aspecto
-en otra laptop con Arch.
+Copia real de mi máquina, pensada para reconstruir el mismo aspecto
+en otro entorno con Arch o derivados.
 
 [![Arch](https://img.shields.io/badge/arch-linux-1793d1?logo=archlinux&logoColor=white)](https://archlinux.org)
 [![Hyprland](https://img.shields.io/badge/Hyprland-%3E%3D0.56-5b9bd5?logo=hyprland&logoColor=white)](https://hypr.land)
@@ -137,12 +137,11 @@ arranca **sin estilo**.
 
 ### Qué NO incluye
 
-- **Claves o tokens** — van aparte en `~/.secrets/keys.env`, nunca en el repo
-- **Waydroid como app** — solo los scripts que lo lanzan
-- **Neovim** — era un clon sin modificar de [NvChad/starter][nvchad], no configuración propia
-- **Apps y agentes de IA** — `claude`, `copilot`, `opencode`, `pnpm`, `zed`,
-  `telegram`… van por su cuenta (pipx, npm o AUR)
-- **Android SDK**, herramientas de desarrollo, cachés ni datos de aplicaciones
+- **Claves o tokens** — se gestionan de forma externa, por ejemplo en `~/.secrets/keys.env`; no forman parte del repositorio.
+- **Waydroid como app** — sólo los scripts que lo lanzan.
+- **Neovim** — era un clon sin modificar de [NvChad/starter][nvchad]; no incluyo configuración propia.
+- **Apps y agentes de IA** — `claude`, `copilot`, `opencode`, `pnpm`, `zed`, `telegram`… se gestionan por cuenta propia (pipx, npm o AUR).
+- **Android SDK**, herramientas de desarrollo, cachés ni datos de aplicaciones.
 
 [nvchad]: https://github.com/NvChad/starter
 
@@ -286,8 +285,7 @@ sola si existe (línea 323), pero **ese fichero no está en el repo**.
 
 ## Estructura
 
-El repo **replica tu `$HOME` tal cual**. Todo lo que hay dentro de `home/` se
-copia a tu home, en la misma posición. No hay carpetas intermedias ni nombres
+Yo replico mi `$HOME` tal cual: todo lo que hay dentro de `home/` se copia a mi `$HOME`. No hay carpetas intermedias ni nombres
 mágicos: si un fichero está en `home/.config/waybar/`, significa
 `~/.config/waybar/`.
 
