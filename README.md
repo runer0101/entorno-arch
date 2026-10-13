@@ -135,18 +135,6 @@ El tema no está en Arch. Viene de `gh0stzk-dotfiles`:
 de instalar. Sin él, `apply-gtk.sh` no encuentra los ficheros y el escritorio
 arranca **sin estilo**.
 
-### Qué NO incluye
-
-- **Claves o tokens** — se gestionan de forma externa, por ejemplo en `~/.secrets/keys.env`; no forman parte del repositorio.
-- **Waydroid como app** — sólo los scripts que lo lanzan.
-- **Neovim** — era un clon sin modificar de [NvChad/starter][nvchad]; no incluyo configuración propia.
-- **Apps y agentes de IA** — `claude`, `copilot`, `opencode`, `pnpm`, `zed`, `telegram`… se gestionan por cuenta propia (pipx, npm o AUR).
-- **Android SDK**, herramientas de desarrollo, cachés ni datos de aplicaciones.
-
-[nvchad]: https://github.com/NvChad/starter
-
----
-
 ## Cómo se hace portable
 
 Las rutas absolutas están normalizadas con el token `__HOME__`, no con mi nombre
@@ -249,30 +237,6 @@ sola si existe (línea 323), pero **ese fichero no está en el repo**.
 
 ---
 
-## Preguntas frecuentes (FAQ)
-
-**1. ¿Puedo ejecutar la instalación sin sudo?**
-   - No. `install.sh` necesita `sudo` para actualizar `/etc/pacman.conf` y para instalar los paquetes del sistema. El script aborta si se ejecuta como root para evitar crear configuraciones bajo `/root`.
-
-**2. ¿Qué pasa si ya tengo algunos de los paquetes instalados?**
-   - El instalador usa `pacman -S --needed`, por lo que sólo instalará los paquetes que falten.
-
-**3. ¿Cómo sé si los repositorios externos se añadieron correctamente?**
-   - El script verifica la presencia de las secciones `[chaotic-aur]` y `[gh0stzk-dotfiles]` en `/etc/pacman.conf`. Si no están, los añade y crea una copia de seguridad `pacman.conf.entorno-arch.bak`.
-
-**4. Mi laptop no tiene Hyprland en los repos oficiales.**
-   - Instala Hyprland siguiendo la [wiki oficial](https://wiki.hypr.land/Getting-Started/Installation/) antes de ejecutar `deploy.sh` o `install.sh`.
-
-**5. ¿Cómo cambio de "rice" después de la instalación?**
-   - Cada rice está en `~/.config/hypr/rices/<nombre>/`. Copia el contenido del rice que desees a `~/.config/hypr/` o ejecuta el script `change-rice.sh` que se incluye en `home/scripts/` (ejemplo: `~/scripts/change-rice.sh emilia`).
-
-**6. ¿Qué hago si algún archivo sigue conteniendo `__HOME__`?**
-   - El instalador hace una búsqueda final; si encuentra coincidencias, muestra una advertencia. Puedes volver a ejecutar `install.sh --packages` para asegurarte de que todas las sustituciones se apliquen.
-
-**7. ¿Cómo puedo desinstalar o revertir los cambios?**
-   - Todos los archivos que sobrescribió el instalador se guardan en `~/.config-backups/<fecha>/`. Puedes restaurar esa copia manualmente y, si lo deseas, eliminar los paquetes instalados con `pacman -Rns $(cat packages.txt)`.
-
----
 
 
 | Repo | Qué es |
