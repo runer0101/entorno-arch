@@ -15,14 +15,27 @@ en otra laptop con Arch.
 
 ---
 
-## Instalación
+## Instalación rápida (una‑línea)
 
-Un comando. Pide `sudo` para instalar dependencias.
+Para reproducir el entorno en otra laptop con Arch Linux basta con ejecutar el siguiente comando único.  El script interno gestiona los repositorios, las dependencias y la copia de los dotfiles, sin requerir interacción adicional.
 
 ```bash
-git clone https://github.com/runer0101/entorno-arch.git && \
-  cd entorno-arch && ./install.sh --packages
+curl -fsSL https://raw.githubusercontent.com/runer0101/entorno-arch/main/deploy.sh | bash -s -- --yes
 ```
+
+- `--yes` omite la confirmación manual y asume que deseas instalar todas las dependencias.
+- El script detecta automáticamente si está en Arch Linux; si no lo está, aborta con un mensaje claro.
+- Internamente llama a `install.sh --packages` después de asegurarse de que los repositorios externos estén configurados.
+- Al finalizar, muestra los pasos finales (cerrar sesión, generar la paleta con `wal`, etc.).
+
+> **Nota:** si prefieres usar el instalador original, el proceso completo sigue siendo:
+>
+> ```bash
+> git clone https://github.com/runer0101/entorno-arch.git && \
+>   cd entorno-arch && ./install.sh --packages
+> ```
+> 
+> y luego **cierra sesión y vuelve a entrar**.
 
 Luego **cierra sesión y vuelve a entrar** (no vale reiniciar el compositor).
 
@@ -237,7 +250,31 @@ sola si existe (línea 323), pero **ese fichero no está en el repo**.
 
 ---
 
-## Repos relacionados
+## Preguntas frecuentes (FAQ)
+
+**1. ¿Puedo ejecutar la instalación sin sudo?**
+   - No. `install.sh` necesita `sudo` para actualizar `/etc/pacman.conf` y para instalar los paquetes del sistema. El script aborta si se ejecuta como root para evitar crear configuraciones bajo `/root`.
+
+**2. ¿Qué pasa si ya tengo algunos de los paquetes instalados?**
+   - El instalador usa `pacman -S --needed`, por lo que sólo instalará los paquetes que falten.
+
+**3. ¿Cómo sé si los repositorios externos se añadieron correctamente?**
+   - El script verifica la presencia de las secciones `[chaotic-aur]` y `[gh0stzk-dotfiles]` en `/etc/pacman.conf`. Si no están, los añade y crea una copia de seguridad `pacman.conf.entorno-arch.bak`.
+
+**4. Mi laptop no tiene Hyprland en los repos oficiales.**
+   - Instala Hyprland siguiendo la [wiki oficial](https://wiki.hypr.land/Getting-Started/Installation/) antes de ejecutar `deploy.sh` o `install.sh`.
+
+**5. ¿Cómo cambio de "rice" después de la instalación?**
+   - Cada rice está en `~/.config/hypr/rices/<nombre>/`. Copia el contenido del rice que desees a `~/.config/hypr/` o ejecuta el script `change-rice.sh` que se incluye en `home/scripts/` (ejemplo: `~/scripts/change-rice.sh emilia`).
+
+**6. ¿Qué hago si algún archivo sigue conteniendo `__HOME__`?**
+   - El instalador hace una búsqueda final; si encuentra coincidencias, muestra una advertencia. Puedes volver a ejecutar `install.sh --packages` para asegurarte de que todas las sustituciones se apliquen.
+
+**7. ¿Cómo puedo desinstalar o revertir los cambios?**
+   - Todos los archivos que sobrescribió el instalador se guardan en `~/.config-backups/<fecha>/`. Puedes restaurar esa copia manualmente y, si lo deseas, eliminar los paquetes instalados con `pacman -Rns $(cat packages.txt)`.
+
+---
+
 
 | Repo | Qué es |
 |---|---|
